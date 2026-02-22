@@ -1,0 +1,17 @@
+{
+  "name": "openfeeder-woocommerce-mock-server",
+  "version": "1.0.0",
+  "description": "Mock server for testing OpenFeeder WooCommerce adapter endpoints",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "express": "^4.18.0"
+  },
+  "engines": {
+    "node": ">=16"
+  },
+  "license": "MIT"
+}
