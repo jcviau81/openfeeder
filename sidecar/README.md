@@ -17,6 +17,29 @@ curl http://localhost:8080/.well-known/openfeeder.json
 curl http://localhost:8080/openfeeder
 ```
 
+## Live Demo
+
+SketchyNews (`https://sketchynews.snaf.foo`) runs this sidecar in production. Try it:
+
+```bash
+# Discovery
+curl https://sketchynews.snaf.foo/.well-known/openfeeder.json
+
+# Browse all content (paginated)
+curl https://sketchynews.snaf.foo/openfeeder
+
+# Semantic search
+curl "https://sketchynews.snaf.foo/openfeeder?q=trump+tariffs"
+
+# Specific article
+curl "https://sketchynews.snaf.foo/openfeeder?url=https://sketchynews.snaf.foo/comic/zelensky-ukraine-everything-necessary-peace-results_20260222_070654"
+
+# Incremental update webhook (upsert a page)
+curl -X POST https://sketchynews.snaf.foo/openfeeder/update \
+  -H "Content-Type: application/json" \
+  -d '{"action": "upsert", "urls": ["/comic/zelensky-ukraine-everything-necessary-peace-results_20260222_070654"]}'
+```
+
 ## Configuration
 
 All configuration is via environment variables:

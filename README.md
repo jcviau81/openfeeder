@@ -43,7 +43,7 @@ curl https://sketchynews.snaf.foo/openfeeder
 curl "https://sketchynews.snaf.foo/openfeeder?q=ukraine"
 
 # Specific page
-curl "https://sketchynews.snaf.foo/openfeeder?url=https://sketchynews.snaf.foo/comic/some-comic"
+curl "https://sketchynews.snaf.foo/openfeeder?url=https://sketchynews.snaf.foo/comic/zelensky-ukraine-everything-necessary-peace-results_20260222_070654"
 ```
 
 **Result vs raw HTML:**
