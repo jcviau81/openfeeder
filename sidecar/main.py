@@ -421,6 +421,19 @@ def _error_response(code: str, message: str, status: int = 400) -> JSONResponse:
 
 
 # ---------------------------------------------------------------------------
+# Manual crawl trigger
+# ---------------------------------------------------------------------------
+
+@app.post("/crawl")
+async def trigger_crawl(background_tasks: BackgroundTasks):
+    """Trigger a manual re-crawl."""
+    if _crawl_running:
+        return {"status": "already_running", "message": "A crawl is already in progress"}
+    background_tasks.add_task(run_crawl)
+    return {"status": "crawl_started", "message": "Re-crawl triggered in background"}
+
+
+# ---------------------------------------------------------------------------
 # Health check
 # ---------------------------------------------------------------------------
 
