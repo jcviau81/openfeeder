@@ -221,6 +221,7 @@ class OpenFeeder_Content_API {
 	private function send_json( $data, $cache_state = 'MISS' ) {
 		header( 'Content-Type: application/json; charset=utf-8' );
 		header( 'X-OpenFeeder: 1.0' );
+		header( 'Access-Control-Allow-Origin: *' );
 		header( 'X-OpenFeeder-Cache: ' . $cache_state );
 
 		echo wp_json_encode( $data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
@@ -238,6 +239,7 @@ class OpenFeeder_Content_API {
 		status_header( $status );
 		header( 'Content-Type: application/json; charset=utf-8' );
 		header( 'X-OpenFeeder: 1.0' );
+		header( 'Access-Control-Allow-Origin: *' );
 
 		echo wp_json_encode(
 			array(
