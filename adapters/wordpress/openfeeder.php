@@ -298,6 +298,21 @@ function openfeeder_register_settings() {
 		'default'           => '',
 		'sanitize_callback' => 'sanitize_text_field',
 	) );
+	register_setting( 'openfeeder_settings', 'openfeeder_excluded_paths', array(
+		'type'              => 'string',
+		'default'           => "/checkout\n/cart\n/my-account",
+		'sanitize_callback' => 'sanitize_textarea_field',
+	) );
+	register_setting( 'openfeeder_settings', 'openfeeder_excluded_post_types', array(
+		'type'              => 'string',
+		'default'           => '',
+		'sanitize_callback' => 'sanitize_textarea_field',
+	) );
+	register_setting( 'openfeeder_settings', 'openfeeder_author_display', array(
+		'type'              => 'string',
+		'default'           => 'name',
+		'sanitize_callback' => 'sanitize_text_field',
+	) );
 	register_setting( 'openfeeder_settings', 'openfeeder_sidecar_webhook', array(
 		'type'              => 'string',
 		'default'           => '',
@@ -396,6 +411,62 @@ function openfeeder_settings_page() {
 						</p>
 					</td>
 				</tr>
+				</table>
+
+			<h2><?php esc_html_e( 'Security', 'openfeeder' ); ?></h2>
+			<table class="form-table" role="presentation">
+				<tr>
+					<th scope="row">
+						<label for="openfeeder_excluded_paths">
+							<?php esc_html_e( 'Excluded Paths', 'openfeeder' ); ?>
+						</label>
+					</th>
+					<td>
+						<textarea id="openfeeder_excluded_paths" name="openfeeder_excluded_paths"
+							rows="5" class="large-text code"><?php echo esc_textarea( get_option( 'openfeeder_excluded_paths', "/checkout\n/cart\n/my-account" ) ); ?></textarea>
+						<p class="description">
+							<?php esc_html_e( 'Path prefixes to exclude from OpenFeeder (one per line). Posts with URLs starting with these prefixes will not be exposed. Example: /checkout, /cart, /my-account, /admin', 'openfeeder' ); ?>
+						</p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row">
+						<label for="openfeeder_excluded_post_types">
+							<?php esc_html_e( 'Additional Excluded Post Types', 'openfeeder' ); ?>
+						</label>
+					</th>
+					<td>
+						<textarea id="openfeeder_excluded_post_types" name="openfeeder_excluded_post_types"
+							rows="3" class="large-text code"><?php echo esc_textarea( get_option( 'openfeeder_excluded_post_types', '' ) ); ?></textarea>
+						<p class="description">
+							<?php esc_html_e( 'Additional post type slugs to exclude (one per line). Internal types (attachment, revision, nav_menu_item, wp_block, wp_template, etc.) are always excluded.', 'openfeeder' ); ?>
+						</p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row">
+						<label for="openfeeder_author_display">
+							<?php esc_html_e( 'Author Display', 'openfeeder' ); ?>
+						</label>
+					</th>
+					<td>
+						<select id="openfeeder_author_display" name="openfeeder_author_display">
+							<option value="name" <?php selected( get_option( 'openfeeder_author_display', 'name' ), 'name' ); ?>>
+								<?php esc_html_e( 'Display name only', 'openfeeder' ); ?>
+							</option>
+							<option value="hidden" <?php selected( get_option( 'openfeeder_author_display', 'name' ), 'hidden' ); ?>>
+								<?php esc_html_e( 'Hidden (never expose author)', 'openfeeder' ); ?>
+							</option>
+						</select>
+						<p class="description">
+							<?php esc_html_e( 'Control whether author names appear in OpenFeeder responses. Only display names are ever used — email addresses and user IDs are never exposed.', 'openfeeder' ); ?>
+						</p>
+					</td>
+				</tr>
+			</table>
+
+			<h2><?php esc_html_e( 'Sidecar Integration', 'openfeeder' ); ?></h2>
+			<table class="form-table" role="presentation">
 				<tr>
 					<th scope="row">
 						<label for="openfeeder_sidecar_webhook">

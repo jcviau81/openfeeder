@@ -198,6 +198,10 @@ class OpenFeeder_WC_Products_API {
 	/**
 	 * Format a WC_Product into the OpenFeeder product schema.
 	 *
+	 * Security: only public product data is exposed. No internal meta (prefixed
+	 * with _), customer orders, user data, or cost prices are ever included.
+	 * Only explicit WC_Product getter methods are used — no arbitrary post meta.
+	 *
 	 * @param WC_Product             $product WooCommerce product object.
 	 * @param OpenFeeder_WC_Chunker  $chunker Chunker instance.
 	 * @return array Formatted product array.

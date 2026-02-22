@@ -90,6 +90,17 @@ function sendError(res, code, message, status) {
 }
 
 /**
+ * Check whether a path should be excluded based on the excludePaths config.
+ * @param {string} path
+ * @param {string[]} excludePaths
+ * @returns {boolean}
+ */
+function isExcludedPath(path, excludePaths) {
+  if (!excludePaths || !excludePaths.length) return false;
+  return excludePaths.some((prefix) => path.startsWith(prefix));
+}
+
+/**
  * @param {import('express').Request} req
  * @param {import('express').Response} res
  * @param {object} config
@@ -108,6 +119,11 @@ async function handleContent(req, res, config) {
 
       if (!normalizedUrl) {
         return sendError(res, 'INVALID_URL', 'The ?url= parameter must be a valid relative path.', 400);
+      }
+
+      // Check excluded paths.
+      if (isExcludedPath(normalizedUrl, config.excludePaths)) {
+        return sendError(res, 'NOT_FOUND', 'No item found at the given URL.', 404);
       }
 
       let item;
@@ -171,14 +187,19 @@ async function handleContent(req, res, config) {
       return sendError(res, 'INTERNAL_ERROR', 'Failed to fetch items.', 500);
     }
 
+    // Filter excluded paths from results.
+    const pathFiltered = config.excludePaths
+      ? rawItems.filter((item) => !isExcludedPath(item.url, config.excludePaths))
+      : rawItems;
+
     // Optional search filter (simple substring match on title + content)
     const filteredItems = query
-      ? rawItems.filter(
+      ? pathFiltered.filter(
           (item) =>
             item.title.toLowerCase().includes(query.toLowerCase()) ||
             (item.content || '').toLowerCase().includes(query.toLowerCase())
         )
-      : rawItems;
+      : pathFiltered;
 
     const totalPages = Math.max(1, Math.ceil(total / limit));
 

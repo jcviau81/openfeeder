@@ -99,6 +99,31 @@ Today, LLMs scrape your site and interpret it however they can. With OpenFeeder,
 
 ---
 
+## Security & Privacy
+
+### OpenFeeder as a Gatekeeper
+
+The web is already being crawled by AI bots. OpenFeeder doesn't change that — it gives you **control over what they get**.
+
+Without OpenFeeder: AI bots scrape your HTML and interpret whatever they find.
+With OpenFeeder: you explicitly define the content, depth, and format. Everything else is invisible.
+
+**What OpenFeeder NEVER exposes (by default):**
+- Draft, private, or password-protected content
+- Email addresses or user account data
+- Internal metadata or admin content
+- Checkout, cart, or personal account pages
+
+**What you can configure:**
+- Exclude specific content types or paths
+- Hide author names entirely
+- Require an API key (only your trusted AI systems get access)
+- Restrict to specific content types only
+
+This makes OpenFeeder the right answer to "how do I control what AI knows about my site?"
+
+---
+
 ## Live Demo
 
 **SketchyNews** is the world's first OpenFeeder-compatible site:
@@ -270,13 +295,27 @@ Copyright (c) 2026 Jean-Christophe Viau. See [LICENSE](LICENSE) for details.
 
 Full security guide: **[spec/SECURITY.md](spec/SECURITY.md)**
 
+### Content Protection
+
+All adapters enforce strict content filtering by default:
+- **Only published content** — drafts, private, pending, trashed, and archived content are never exposed
+- **Password-protected posts excluded** — posts with a password set are automatically filtered out
+- **Display names only** — no email addresses, user IDs, or login names are ever returned
+- **No internal metadata** — WordPress internal post types (`attachment`, `revision`, `nav_menu_item`, `wp_block`, `wp_template`, etc.) and WooCommerce internal meta (prefixed with `_`) are never exposed
+- **Excluded paths** — configurable path prefixes (e.g. `/checkout`, `/cart`, `/my-account`) are filtered from all responses
+
+### Gatekeeper Configuration
+
+| Setting | WordPress | Express | Description |
+|---------|-----------|---------|-------------|
+| Excluded paths | Settings > OpenFeeder > Security | `config.excludePaths` | Path prefixes to hide from AI |
+| Excluded types | Settings > OpenFeeder > Security | N/A (developer-controlled) | Post types to exclude |
+| Author display | Settings > OpenFeeder > Security | N/A | `"name"` or `"hidden"` |
+| API key | Settings > OpenFeeder | `config.apiKey` | Require Bearer auth |
+
 ### SSRF Protection
 
 All adapters validate the `?url=` parameter to accept only **relative paths** (no host, no scheme). Absolute URLs are stripped to pathname only. Path traversal (`..`) is rejected.
-
-### Optional API Key
-
-Set `apiKey` (Express) or `openfeeder_api_key` (WordPress) to require `Authorization: Bearer <key>` on all content requests. The discovery document (`/.well-known/openfeeder.json`) is always public.
 
 ### Rate Limiting
 

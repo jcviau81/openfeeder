@@ -93,7 +93,14 @@ class ContentController extends ControllerBase {
     $url = $request->query->get('url', '');
     $query = $request->query->get('q', '');
 
+    // Check excluded paths.
     if (!empty($url)) {
+      $excluded_paths = $config->get('excluded_paths') ?? [];
+      foreach ($excluded_paths as $prefix) {
+        if (!empty($prefix) && str_starts_with($url, $prefix)) {
+          return $this->errorResponse('NOT_FOUND', 'No published content found at the given URL.', 404);
+        }
+      }
       return $this->serveSingle($request, $url);
     }
 
@@ -102,6 +109,20 @@ class ContentController extends ControllerBase {
     }
 
     return $this->serveIndex($request);
+  }
+
+  /**
+   * Apply excluded content type conditions to an entity query.
+   *
+   * @param \Drupal\Core\Entity\Query\QueryInterface $query
+   *   The entity query.
+   */
+  protected function applyExcludedTypes($query): void {
+    $config = $this->config('openfeeder.settings');
+    $excluded_types = $config->get('excluded_content_types') ?? [];
+    if (!empty($excluded_types)) {
+      $query->condition('type', $excluded_types, 'NOT IN');
+    }
   }
 
   /**
@@ -151,8 +172,9 @@ class ContentController extends ControllerBase {
     $node_url = $node->toUrl()->setAbsolute(TRUE)->toString();
     $chunks = $this->chunker->chunk($cleaned, $node_url);
 
+    $author_display = $config->get('author_display') ?? 'name';
     $author = NULL;
-    if ($node->getOwner()) {
+    if ('name' === $author_display && $node->getOwner()) {
       $author = $node->getOwner()->getDisplayName();
     }
 
@@ -219,6 +241,7 @@ class ContentController extends ControllerBase {
       ->condition('status', 1)
       ->sort('created', 'DESC')
       ->range(($page - 1) * self::ITEMS_PER_PAGE, self::ITEMS_PER_PAGE);
+    $this->applyExcludedTypes($query);
     $nids = $query->execute();
 
     // Get total count for pagination.
@@ -226,13 +249,30 @@ class ContentController extends ControllerBase {
       ->accessCheck(TRUE)
       ->condition('status', 1)
       ->count();
+    $this->applyExcludedTypes($count_query);
     $total = (int) $count_query->execute();
     $total_pages = (int) ceil($total / self::ITEMS_PER_PAGE);
+
+    $excluded_paths = $config->get('excluded_paths') ?? [];
 
     $items = [];
     if (!empty($nids)) {
       $nodes = $storage->loadMultiple($nids);
       foreach ($nodes as $node) {
+        $path = $node->toUrl()->toString();
+
+        // Skip excluded paths.
+        $skip = FALSE;
+        foreach ($excluded_paths as $prefix) {
+          if (!empty($prefix) && str_starts_with($path, $prefix)) {
+            $skip = TRUE;
+            break;
+          }
+        }
+        if ($skip) {
+          continue;
+        }
+
         $summary = '';
         if ($node->hasField('body') && !$node->get('body')->isEmpty()) {
           $summary = $node->get('body')->summary;
@@ -243,8 +283,6 @@ class ContentController extends ControllerBase {
             );
           }
         }
-
-        $path = $node->toUrl()->toString();
 
         $items[] = [
           'url' => $path,
@@ -291,6 +329,7 @@ class ContentController extends ControllerBase {
       ->condition('status', 1)
       ->condition('title', $query, 'CONTAINS')
       ->range(0, $limit);
+    $this->applyExcludedTypes($title_query);
     $title_nids = $title_query->execute();
 
     $body_query = $storage->getQuery()
@@ -298,6 +337,7 @@ class ContentController extends ControllerBase {
       ->condition('status', 1)
       ->condition('body.value', $query, 'CONTAINS')
       ->range(0, $limit);
+    $this->applyExcludedTypes($body_query);
     $body_nids = $body_query->execute();
 
     // Merge results, prioritizing title matches.

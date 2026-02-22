@@ -184,7 +184,47 @@ X-OpenFeeder-Cache: HIT | MISS
 
 ---
 
-## 10. robots.txt Relationship
+## 10. Security & Privacy
+
+### What OpenFeeder exposes
+By default, OpenFeeder exposes ONLY:
+- Published, public content (no drafts, no private posts, no password-protected content)
+- Display names (no email addresses, no user IDs)
+- Explicitly configured fields (no internal metadata)
+
+### OpenFeeder as Gatekeeper
+Without OpenFeeder, AI bots scrape whatever HTML they can reach. With OpenFeeder, you have explicit control:
+- Define exactly which content types are exposed
+- Exclude sensitive paths (/checkout, /my-account, /admin)
+- Hide author information entirely
+- Require an API key to restrict access to trusted AI systems only
+- Your content, your rules — LLMs see what you decide
+
+### API Key Authentication
+Set `apiKey` in your adapter config to require `Authorization: Bearer <key>` on all content requests. The discovery document (`/.well-known/openfeeder.json`) is always public.
+
+### Gatekeeper Configuration
+
+Implementations SHOULD support the following configuration options:
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `excludedPaths` | string[] | Path prefixes to exclude from content listing (e.g. `/checkout`, `/cart`, `/my-account`) |
+| `excludedTypes` | string[] | Content types to exclude (e.g. `page`, `attachment` in WordPress) |
+| `authorDisplay` | `"name"` \| `"hidden"` | Whether to include author display names or hide them entirely |
+| `apiKey` | string | Require `Authorization: Bearer <key>` on all content endpoints |
+
+### Recommended exclusions
+Always exclude from your OpenFeeder endpoint:
+- User account pages
+- Checkout/payment flows
+- Admin/dashboard pages
+- Any page containing personal data (GDPR)
+- Drafts and internal review content
+
+---
+
+## 11. robots.txt Relationship
 
 OpenFeeder does not override `robots.txt`. Sites that wish to allow LLM access via OpenFeeder while blocking scrapers MAY add:
 

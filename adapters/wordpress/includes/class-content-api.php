@@ -92,15 +92,84 @@ class OpenFeeder_Content_API {
 	}
 
 	/**
+	 * Check whether a path should be excluded based on the excluded_paths config.
+	 *
+	 * @param string $path Relative URL path.
+	 * @return bool True if the path should be excluded.
+	 */
+	private function is_excluded_path( string $path ): bool {
+		$excluded = array_filter( array_map( 'trim', explode( "\n", get_option( 'openfeeder_excluded_paths', '' ) ) ) );
+		foreach ( $excluded as $prefix ) {
+			if ( '' !== $prefix && str_starts_with( $path, $prefix ) ) {
+				return true;
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * Get the list of post types that should be excluded from OpenFeeder.
+	 *
+	 * @return array List of excluded post type slugs.
+	 */
+	private function get_excluded_post_types(): array {
+		$defaults = array(
+			'attachment',
+			'revision',
+			'nav_menu_item',
+			'custom_css',
+			'customize_changeset',
+			'oembed_cache',
+			'user_request',
+			'wp_block',
+			'wp_template',
+			'wp_template_part',
+			'wp_global_styles',
+			'wp_navigation',
+		);
+		$custom = array_filter( array_map( 'trim', explode( "\n", get_option( 'openfeeder_excluded_post_types', '' ) ) ) );
+		return array_unique( array_merge( $defaults, $custom ) );
+	}
+
+	/**
+	 * Get the allowed post types (all public post types minus excluded ones).
+	 *
+	 * @return array List of allowed post type slugs.
+	 */
+	private function get_allowed_post_types(): array {
+		$public_types = get_post_types( array( 'public' => true ), 'names' );
+		$excluded     = $this->get_excluded_post_types();
+		return array_values( array_diff( $public_types, $excluded ) );
+	}
+
+	/**
 	 * Serve chunked content for a single post.
 	 *
 	 * @param string $url Relative URL of the post.
 	 */
 	private function serve_single( $url ) {
+		// Check excluded paths.
+		if ( $this->is_excluded_path( $url ) ) {
+			$this->send_error( 'NOT_FOUND', 'No published post found at the given URL.', 404 );
+			return;
+		}
+
 		$cache  = new OpenFeeder_Cache();
 		$post   = $this->find_post_by_url( $url );
 
 		if ( ! $post ) {
+			$this->send_error( 'NOT_FOUND', 'No published post found at the given URL.', 404 );
+			return;
+		}
+
+		// Reject password-protected posts.
+		if ( ! empty( $post->post_password ) ) {
+			$this->send_error( 'NOT_FOUND', 'No published post found at the given URL.', 404 );
+			return;
+		}
+
+		// Reject excluded post types.
+		if ( in_array( $post->post_type, $this->get_excluded_post_types(), true ) ) {
 			$this->send_error( 'NOT_FOUND', 'No published post found at the given URL.', 404 );
 			return;
 		}
@@ -131,9 +200,13 @@ class OpenFeeder_Content_API {
 		$cleaned = $chunker->clean( $post->post_content );
 		$chunks  = $chunker->chunk( $cleaned, get_permalink( $post ) );
 
-		$author = get_the_author_meta( 'display_name', $post->post_author );
-		if ( empty( $author ) ) {
-			$author = null;
+		$author_display = get_option( 'openfeeder_author_display', 'name' );
+		$author = null;
+		if ( 'name' === $author_display ) {
+			$author = get_the_author_meta( 'display_name', $post->post_author );
+			if ( empty( $author ) ) {
+				$author = null;
+			}
 		}
 
 		$excerpt = $post->post_excerpt;
@@ -191,8 +264,9 @@ class OpenFeeder_Content_API {
 		}
 
 		$query_args = array(
-			'post_type'      => 'post',
+			'post_type'      => $this->get_allowed_post_types(),
 			'post_status'    => 'publish',
+			'has_password'   => false,
 			'posts_per_page' => self::POSTS_PER_PAGE,
 			'paged'          => $page,
 			'orderby'        => 'date',
@@ -213,13 +287,20 @@ class OpenFeeder_Content_API {
 				$query->the_post();
 				$post = get_post();
 
+				$rel_url = wp_make_link_relative( get_permalink( $post ) );
+
+				// Skip excluded paths.
+				if ( $this->is_excluded_path( $rel_url ) ) {
+					continue;
+				}
+
 				$excerpt = $post->post_excerpt;
 				if ( empty( $excerpt ) ) {
 					$excerpt = wp_trim_words( wp_strip_all_tags( $post->post_content ), 30, '...' );
 				}
 
 				$items[] = array(
-					'url'       => wp_make_link_relative( get_permalink( $post ) ),
+					'url'       => $rel_url,
 					'title'     => get_the_title( $post ),
 					'published' => get_post_time( 'c', true, $post ),
 					'summary'   => $excerpt,
@@ -259,7 +340,7 @@ class OpenFeeder_Content_API {
 
 		if ( $post_id ) {
 			$post = get_post( $post_id );
-			if ( $post && 'publish' === $post->post_status ) {
+			if ( $post && 'publish' === $post->post_status && empty( $post->post_password ) ) {
 				return $post;
 			}
 		}
@@ -268,10 +349,11 @@ class OpenFeeder_Content_API {
 		$slug = basename( untrailingslashit( $path ) );
 		if ( ! empty( $slug ) ) {
 			$posts = get_posts( array(
-				'name'        => $slug,
-				'post_type'   => 'post',
-				'post_status' => 'publish',
-				'numberposts' => 1,
+				'name'         => $slug,
+				'post_type'    => $this->get_allowed_post_types(),
+				'post_status'  => 'publish',
+				'has_password' => false,
+				'numberposts'  => 1,
 			) );
 			if ( ! empty( $posts ) ) {
 				return $posts[0];

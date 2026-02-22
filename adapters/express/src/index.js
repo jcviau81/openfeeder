@@ -30,10 +30,14 @@ const { createGatewayMiddleware } = require('./gateway');
  * @property {string} [language] - BCP-47 language tag (default: "en")
  * @property {string} [siteDescription] - Brief description of the site
  * @property {string} [apiKey] - Optional. If set, all /openfeeder requests must include Authorization: Bearer <apiKey>
+ * @property {string[]} [excludePaths] - Optional. Path prefixes to exclude from content listing (e.g. ["/checkout", "/cart", "/my-account"])
  * @property {function(number, number): Promise<{items: OpenFeederRawItem[], total: number}>} getItems
  *   - Returns a page of items. Receives (page, limit).
+ *   - IMPORTANT: getItems should NEVER return private, internal, or user-specific data.
+ *   - Only return published, public content suitable for LLM consumption.
  * @property {function(string): Promise<OpenFeederRawItem|null>} getItem
  *   - Returns a single item by URL pathname, or null if not found.
+ *   - IMPORTANT: getItem should NEVER return private, internal, or user-specific data.
  */
 
 /**

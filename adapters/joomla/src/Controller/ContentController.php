@@ -298,7 +298,17 @@ class ContentController
     {
         $db    = Factory::getDbo();
         $query = $db->getQuery(true)
-            ->select('*')
+            ->select([
+                $db->quoteName('id'),
+                $db->quoteName('title'),
+                $db->quoteName('alias'),
+                $db->quoteName('catid'),
+                $db->quoteName('introtext'),
+                $db->quoteName('fulltext'),
+                $db->quoteName('created'),
+                $db->quoteName('modified'),
+                $db->quoteName('created_by'),
+            ])
             ->from($db->quoteName('#__content'))
             ->where($db->quoteName('state') . ' = 1')
             ->where($db->quoteName('alias') . ' = ' . $db->quote($alias));
