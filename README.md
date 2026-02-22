@@ -63,37 +63,36 @@ The **Universal Sidecar** handles sites you don't control (third-party, legacy) 
 OpenFeeder isn't just better for LLMs — it's better for your infrastructure.
 
 ### 📉 Bandwidth savings
-AI crawlers are now a significant fraction of web traffic. Each one fetching your full HTML page gets:
-- Your entire DOM (headers, footers, nav, scripts, ads)
-- Duplicate content across pages
-- Assets they'll never use
+AI crawlers fetch your full HTML page — DOM, nav, scripts, ads, footers, duplicate content — and discard 95% of it to find what they actually need.
 
-OpenFeeder serves **only the content** — typically **10–20x smaller** than the equivalent HTML page.
+OpenFeeder serves **only the content**. Our benchmark on [SketchyNews](https://sketchynews.snaf.foo):
 
 ```
-Full HTML page:  ~50–200 KB  (with scripts, styles inlined)
-OpenFeeder JSON:   ~1–10 KB  (pure content, no noise)
+Full HTML page:   19,535 bytes
+OpenFeeder JSON:   1,085 bytes
+                   ──────────
+                   18x smaller  ✅ measured
 ```
 
-If 30% of your traffic is AI bots (a realistic number in 2026), that's 30% of your bandwidth budget that could shrink by 90%.
+AI bot traffic is a growing share of overall web traffic — industry estimates for content-heavy sites range from 15–25% in 2024, accelerating. Even at 15%, serving those bots 18x less data adds up fast.
 
 ### ⚡ Processing time & server load
-Serving an OpenFeeder response is cheaper than serving a full page:
-- **No template rendering** — no PHP/Jinja/Blade execution
-- **No asset pipeline** — no CSS/JS bundling
-- **Cacheable by design** — `Cache-Control`, `ETag`, `304 Not Modified` built into the spec
-- **Fewer repeated crawls** — LLMs get what they need in 1–2 requests instead of crawling 50 pages to reconstruct context
+Serving an OpenFeeder response is cheaper than a full page render — for **native adapters** specifically:
+- **No template rendering** — queries go straight to DB, no PHP/Blade/Jinja execution
+- **No asset pipeline** — no CSS/JS bundling, no media processing
+- **Cacheable by design** — `Cache-Control`, `ETag`, `304 Not Modified` built into the spec (implemented in all 9 adapters)
+- **Fewer repeated crawls** — LLMs get what they need in 1–2 requests instead of spidering dozens of pages
 
 ### 🌱 Energy & carbon
-Less data transferred = less energy consumed — by your servers, by the CDN, and by the AI infrastructure processing your content. At scale, this is meaningful.
+Less data transferred = less energy consumed — by your servers, your CDN, and the AI infrastructure on the other end. The math is simple: 18x less data = 18x less network energy for that traffic segment. At scale, across thousands of AI crawl requests per day, this is measurable.
 
 ### 💰 Token efficiency for LLM operators
-Every token an LLM processes costs money and time. A clean 1KB OpenFeeder response vs 50KB of HTML soup means:
-- **~50x fewer tokens** to process
+Every token costs money and latency. A structured 1KB OpenFeeder response vs 20KB of HTML soup:
+- **~20–50x fewer tokens** to process (depending on page complexity)
 - Faster responses for end users
 - Lower inference costs for LLM providers
 
-This is why LLM providers and AI agents will actively *prefer* OpenFeeder-compatible sites — and why being early gives you an edge in AI-driven discovery.
+LLM providers and AI agents will naturally gravitate toward OpenFeeder-compatible sites — getting better results faster, with less compute. Being early means being discoverable when AI-driven traffic becomes the norm.
 
 ### 🤝 Control over how AI sees you
 Today, LLMs scrape your site and interpret it however they can. With OpenFeeder, **you decide what they get** — the right summary, the right metadata, the right context. No more AI hallucinating your product prices or misquoting your articles.
