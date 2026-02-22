@@ -1,0 +1,124 @@
+version: "3.8"
+
+services:
+  # ─── WordPress ──────────────────────────────────────────────
+  wordpress:
+    image: wordpress:latest
+    ports:
+      - "8081:80"
+    environment:
+      WORDPRESS_DB_HOST: wp-db
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wordpress
+      WORDPRESS_DB_NAME: wordpress
+    volumes:
+      - wp_data:/var/www/html
+      - ../adapters/wordpress:/var/www/html/wp-content/plugins/openfeeder:ro
+    depends_on:
+      wp-db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  wp-db:
+    image: mysql:8.0
+    environment:
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: wordpress
+      MYSQL_PASSWORD: wordpress
+      MYSQL_ROOT_PASSWORD: rootpassword
+    volumes:
+      - wp_db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-prootpassword"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  wpcli:
+    image: wordpress:cli
+    depends_on:
+      - wordpress
+    volumes:
+      - wp_data:/var/www/html
+      - ../adapters/wordpress:/var/www/html/wp-content/plugins/openfeeder:ro
+    environment:
+      WORDPRESS_DB_HOST: wp-db
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wordpress
+      WORDPRESS_DB_NAME: wordpress
+    user: "33:33"
+    entrypoint: wp
+    command: "--info"
+
+  # ─── Drupal ─────────────────────────────────────────────────
+  drupal:
+    image: drupal:10
+    ports:
+      - "8082:80"
+    volumes:
+      - drupal_data:/opt/drupal/web
+      - drupal_vendor:/opt/drupal/vendor
+      - ../adapters/drupal:/opt/drupal/web/modules/custom/openfeeder:ro
+    depends_on:
+      drupal-db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  drupal-db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: drupal
+      POSTGRES_USER: drupal
+      POSTGRES_PASSWORD: drupal
+    volumes:
+      - drupal_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U drupal"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  # ─── Joomla ─────────────────────────────────────────────────
+  joomla:
+    image: joomla:5
+    ports:
+      - "8083:80"
+    environment:
+      JOOMLA_DB_HOST: joomla-db
+      JOOMLA_DB_USER: joomla
+      JOOMLA_DB_PASSWORD: joomla
+      JOOMLA_DB_NAME: joomla
+    volumes:
+      - joomla_data:/var/www/html
+      - ../adapters/joomla:/var/www/html/plugins/system/openfeeder:ro
+    depends_on:
+      joomla-db:
+        condition: service_healthy
+    restart: unless-stopped
+
+  joomla-db:
+    image: mysql:8.0
+    environment:
+      MYSQL_DATABASE: joomla
+      MYSQL_USER: joomla
+      MYSQL_PASSWORD: joomla
+      MYSQL_ROOT_PASSWORD: rootpassword
+    volumes:
+      - joomla_db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-prootpassword"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  wp_data:
+  wp_db_data:
+  drupal_data:
+  drupal_vendor:
+  drupal_db_data:
+  joomla_data:
+  joomla_db_data:
