@@ -3,7 +3,7 @@
     <name>plg_system_openfeeder</name>
     <author>OpenFeeder</author>
     <creationDate>2026-02-22</creationDate>
-    <version>1.0.0</version>
+    <version>1.0.3</version>
     <description>PLG_SYSTEM_OPENFEEDER_DESC</description>
     <namespace path="src">Joomla\Plugin\System\OpenFeeder</namespace>
 

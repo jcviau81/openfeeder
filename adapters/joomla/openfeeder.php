@@ -58,7 +58,7 @@ $path = strtok($_SERVER['REQUEST_URI'] ?? '/', '?');
 // ── Discovery ─────────────────────────────────────────────────
 if (strpos($path, 'openfeeder.json') !== false) {
     echo json_encode([
-        'version'      => '1.0',
+        'version'      => '1.0.3',
         'site'         => ['name' => $siteName, 'url' => $siteUrl, 'language' => 'en', 'description' => ''],
         'feed'         => ['endpoint' => '/openfeeder', 'type' => 'paginated'],
         'capabilities' => ['search'],
