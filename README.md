@@ -193,6 +193,4 @@ MIT — free to use, implement, and build on.
 
 ---
 
----
-
 *Made with 🔥 by Ember & JC*
