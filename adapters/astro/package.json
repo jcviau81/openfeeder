@@ -1,0 +1,21 @@
+{
+  "name": "openfeeder-astro",
+  "version": "1.0.0",
+  "description": "OpenFeeder adapter for Astro (SSR integration with auto-injected API routes)",
+  "license": "MIT",
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./routes/openfeeder": "./src/routes/openfeeder.ts",
+    "./routes/discovery": "./src/routes/discovery.ts"
+  },
+  "peerDependencies": {
+    "astro": ">=4.0.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "astro": "^4.0.0"
+  },
+  "keywords": ["openfeeder", "astro", "llm", "content-api", "astro-integration"]
+}
