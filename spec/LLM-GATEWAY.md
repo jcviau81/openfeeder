@@ -172,6 +172,175 @@ openFeederMiddleware({
 
 ---
 
+## Interaction Modes
+
+The gateway supports three interaction modes, detected automatically from the incoming request:
+
+### Mode 1 — Dialogue (Cold Start)
+
+Bot has no prior knowledge of the site's OpenFeeder protocol. Gateway responds with structured questions and a `session_id`. Bot answers via `POST /openfeeder/gateway/respond`.
+
+**Trigger:** No `X-OpenFeeder-*` headers and no pre-answered params in request.
+
+**Flow:**
+```
+Bot → GET /article
+         ← 200 { "dialog": {..., "session_id": "gw_abc123", "questions": [...] }, "endpoints": {...} }
+Bot → POST /openfeeder/gateway/respond { "session_id": "gw_abc123", "answers": {...}, "query": "..." }
+         ← 200 { "tailored": true, "recommended_endpoints": [...], "current_page": {...} }
+```
+
+### Mode 2 — Direct (Warm Start)
+
+Bot already knows OpenFeeder's protocol (trained on it, or has spec in context). Skips the dialogue by sending intent headers upfront. Gateway responds with tailored results immediately — **zero extra roundtrip**.
+
+**Trigger:** One or more `X-OpenFeeder-*` request headers (or `_of_*` query params as fallback).
+
+**Request headers:**
+
+| Header | Values | Description |
+|--------|--------|-------------|
+| `X-OpenFeeder-Intent` | `answer-question`, `broad-research`, `fact-check`, `summarize`, `find-sources` | Primary goal |
+| `X-OpenFeeder-Depth` | `overview`, `standard`, `deep` | Level of detail needed |
+| `X-OpenFeeder-Format` | `full-text`, `key-facts`, `summary`, `qa` | Preferred output format |
+| `X-OpenFeeder-Query` | any string | The actual question or search query |
+| `X-OpenFeeder-Language` | BCP-47 code (`en`, `fr`, `es`…) | Preferred response language |
+
+**Query param fallback** (for clients that can't set headers):
+```
+GET /article?_of_intent=answer-question&_of_query=What+are+the+effects+of+X&_of_depth=standard
+```
+
+**Flow:**
+```
+Bot → GET /article  [X-OpenFeeder-Intent: answer-question] [X-OpenFeeder-Query: effects of X]
+         ← 200 { "tailored": true, "recommended_endpoints": [...], "current_page": {...} }
+```
+
+### Mode 3 — Bypass (Legacy Bots)
+
+Bot ignores the dialogue and uses `endpoints` directly from the initial gateway response. All modes include `endpoints` in their response to ensure backwards compatibility.
+
+---
+
+## Dialogue Session Protocol
+
+### Initiating a session (Mode 1 cold start)
+
+The initial gateway response includes a `dialog` block when no intent headers are detected:
+
+```json
+{
+  "openfeeder": "1.0",
+  "gateway": "interactive",
+  "dialog": {
+    "active": true,
+    "session_id": "gw_abc123xyz",
+    "expires_in": 300,
+    "message": "To give you the most relevant content, a few quick questions:",
+    "questions": [
+      {
+        "id": "intent",
+        "question": "What is your primary goal?",
+        "type": "choice",
+        "options": ["answer-question", "broad-research", "fact-check", "summarize", "find-sources"]
+      },
+      {
+        "id": "depth",
+        "question": "How much detail do you need?",
+        "type": "choice",
+        "options": ["overview", "standard", "deep"]
+      },
+      {
+        "id": "format",
+        "question": "Preferred output format?",
+        "type": "choice",
+        "options": ["full-text", "key-facts", "summary", "qa"]
+      },
+      {
+        "id": "query",
+        "question": "What specifically are you looking for? (optional — leave blank to browse)",
+        "type": "text"
+      }
+    ],
+    "reply_to": "POST /openfeeder/gateway/respond"
+  },
+  "context": { ... },
+  "questions": [ ... ],
+  "endpoints": { ... }
+}
+```
+
+### Responding to the dialogue
+
+```
+POST /openfeeder/gateway/respond
+Content-Type: application/json
+
+{
+  "session_id": "gw_abc123xyz",
+  "answers": {
+    "intent": "answer-question",
+    "depth": "standard",
+    "format": "key-facts",
+    "query": "What are the main causes of climate change?"
+  }
+}
+```
+
+### Tailored response (Modes 1 round-2 and 2 direct)
+
+```json
+{
+  "openfeeder": "1.0",
+  "tailored": true,
+  "intent": "answer-question",
+  "depth": "standard",
+  "format": "key-facts",
+  "recommended_endpoints": [
+    {
+      "url": "https://example.com/openfeeder?q=climate+change+causes&format=key-facts",
+      "relevance": "high",
+      "description": "Content filtered to match your specific question"
+    },
+    {
+      "url": "https://example.com/openfeeder/content/article-slug",
+      "relevance": "medium",
+      "description": "Full article on this topic"
+    }
+  ],
+  "query_hints": [
+    "GET /openfeeder?q=climate+change+causes",
+    "GET /openfeeder?q=climate&format=key-facts&depth=standard"
+  ],
+  "current_page": {
+    "openfeeder_url": "https://example.com/openfeeder/content/article-slug",
+    "title": "...",
+    "summary": "..."
+  }
+}
+```
+
+---
+
+## Gateway Decision Logic
+
+```
+Incoming request (LLM bot detected)
+        │
+        ├─ Has X-OpenFeeder-* headers or ?_of_* params?
+        │       └─ YES → Mode 2 (Direct): build tailored response immediately
+        │
+        ├─ Is it POST /openfeeder/gateway/respond with valid session_id?
+        │       └─ YES → Mode 1 Round 2: resolve session, build tailored response
+        │
+        └─ Neither → Mode 1 Round 1: generate dialogue + session_id + legacy endpoints
+```
+
+**Session storage:** In-memory Map with TTL (default 5 min). In production, Redis or DB can replace it. Session stores: `{ url, detected_type, detected_topic, created_at }`.
+
+---
+
 ## Comparison: Static vs. Interactive Gateway
 
 | | Static (v1) | Interactive (v2) |
@@ -188,5 +357,12 @@ openFeederMiddleware({
 
 ## Reference Implementations
 
-- **Express.js:** `adapters/express/src/gateway.js`
+- **Express.js:** `adapters/express/src/gateway.js` + `adapters/express/src/gateway-session.js`
 - **WordPress:** `adapters/wordpress/includes/class-gateway.php`
+
+### New endpoints required
+
+| Method | Path | Description |
+|--------|------|-------------|
+| `GET` | `/*` (all pages) | Bot detection + dialogue/direct response |
+| `POST` | `/openfeeder/gateway/respond` | Session round-2 dialogue response |
