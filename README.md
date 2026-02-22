@@ -191,6 +191,8 @@ PRs welcome for:
 
 MIT — free to use, implement, and build on.
 
+Copyright (c) 2026 Jean-Christophe Viau. See [LICENSE](LICENSE) for details.
+
 ---
 
 *Made with 🔥 by Ember & JC*

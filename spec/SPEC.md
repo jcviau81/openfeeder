@@ -198,3 +198,7 @@ Disallow: /
 ---
 
 *This spec is a living document. Version 1.0 is a draft. Feedback welcome via GitHub issues.*
+
+---
+
+Copyright (c) 2026 Jean-Christophe Viau. Licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).
