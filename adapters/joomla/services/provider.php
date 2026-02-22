@@ -1,5 +1,4 @@
 <?php
-
 /**
  * @package     Joomla.Plugin
  * @subpackage  System.OpenFeeder
@@ -17,6 +16,16 @@ use Joomla\DI\Container;
 use Joomla\DI\ServiceProviderInterface;
 use Joomla\Event\DispatcherInterface;
 use Joomla\Plugin\System\OpenFeeder\Extension\OpenFeeder;
+
+// Manually load classes in case PSR-4 namespace map hasn't been regenerated
+// (e.g. plugin was manually copied instead of installed via Extension Manager)
+$pluginDir = dirname(__DIR__);
+if (!class_exists('Joomla\\Plugin\\System\\OpenFeeder\\Helper\\Chunker', false)) {
+    require_once $pluginDir . '/src/Helper/Chunker.php';
+    require_once $pluginDir . '/src/Controller/DiscoveryController.php';
+    require_once $pluginDir . '/src/Controller/ContentController.php';
+    require_once $pluginDir . '/src/Extension/OpenFeeder.php';
+}
 
 return new class implements ServiceProviderInterface
 {

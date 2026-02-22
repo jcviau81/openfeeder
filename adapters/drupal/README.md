@@ -43,9 +43,9 @@ Settings are located at **Administration > Configuration > System > OpenFeeder**
 | Endpoint | Description |
 |----------|-------------|
 | `GET /.well-known/openfeeder.json` | Discovery document |
-| `GET /api/openfeeder` | Paginated content index |
-| `GET /api/openfeeder?url=/path` | Chunked content for a specific node |
-| `GET /api/openfeeder?q=search+term` | Search results ranked by relevance |
+| `GET /openfeeder` | Paginated content index |
+| `GET /openfeeder?url=/path` | Chunked content for a specific node |
+| `GET /openfeeder?q=search+term` | Search results ranked by relevance |
 
 ## Cache Invalidation
 

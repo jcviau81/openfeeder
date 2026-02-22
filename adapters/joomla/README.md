@@ -1,13 +1,47 @@
-# OpenFeeder Joomla Plugin
+# OpenFeeder Joomla Adapter
 
-A Joomla 4/5 system plugin that exposes [OpenFeeder protocol](../../spec/SPEC.md) endpoints, providing LLM-optimized content from your Joomla site.
+A Joomla 4/5 adapter that exposes [OpenFeeder protocol](../../spec/SPEC.md) endpoints, providing LLM-optimized content from your Joomla site.
 
 ## Requirements
 
 - Joomla 4.0 or later (compatible with Joomla 5)
 - PHP 8.0+
 
-## Installation
+## Quick Install (Standalone Gateway)
+
+This is the simplest approach — a single PHP file in your Joomla webroot. No Extension Manager needed, no PSR-4 autoloading issues.
+
+### 1. Copy the gateway file
+
+```bash
+cp openfeeder.php /var/www/html/openfeeder.php
+```
+
+(Replace `/var/www/html` with your Joomla webroot.)
+
+### 2. Add rewrite rules to `.htaccess`
+
+Add these lines to your Joomla `.htaccess` file, **before** the existing Joomla rewrite rules:
+
+```apache
+# OpenFeeder LLM endpoints
+RewriteRule ^\.well-known/openfeeder\.json$ openfeeder.php [L,QSA]
+RewriteRule ^openfeeder$ openfeeder.php [L,QSA]
+RewriteRule ^openfeeder\?(.*)$ openfeeder.php?$1 [L,QSA]
+```
+
+### 3. Test
+
+```bash
+curl https://yoursite.com/.well-known/openfeeder.json
+curl https://yoursite.com/openfeeder
+curl https://yoursite.com/openfeeder?url=my-article-alias
+curl https://yoursite.com/openfeeder?q=search+term
+```
+
+## Full Install (Extension Manager)
+
+If you prefer a proper Joomla system plugin with admin configuration, caching, and autoloading:
 
 ### Option A: Extension Manager (recommended)
 
@@ -16,19 +50,19 @@ A Joomla 4/5 system plugin that exposes [OpenFeeder protocol](../../spec/SPEC.md
 3. Go to **System > Install > Extensions**
 4. Upload the zip file
 
-### Option B: Manual install
+### Option B: Manual plugin install
 
 1. Copy the plugin files to `plugins/system/openfeeder/`
 2. In the Joomla admin, go to **System > Manage > Extensions > Discover**
 3. Click **Discover** then install the OpenFeeder plugin
 
-## Enable
+### Enable the plugin
 
 1. Go to **System > Manage > Plugins**
 2. Search for "OpenFeeder"
 3. Enable the plugin
 
-## Configuration
+### Plugin Configuration
 
 In the Plugin Manager, click on OpenFeeder to configure:
 
@@ -40,7 +74,7 @@ In the Plugin Manager, click on OpenFeeder to configure:
 
 ## Endpoints
 
-Once enabled, the plugin exposes two routes:
+Both install methods expose the same two routes:
 
 ### Discovery
 
@@ -53,7 +87,7 @@ Returns site metadata and feed endpoint information per the OpenFeeder spec.
 ### Content API
 
 ```
-GET /api/openfeeder
+GET /openfeeder
 ```
 
 | Parameter | Type | Description |
@@ -61,17 +95,13 @@ GET /api/openfeeder
 | `url` | string | Article path/alias to fetch |
 | `q` | string | Search query for title/introtext matching |
 | `page` | int | Page number for index (default: 1) |
-| `limit` | int | Max chunks to return (default: 10) |
+| `limit` | int | Max chunks to return (default: 10, max: 50) |
 
 **Index mode** (no params): Returns a paginated list of published articles.
 
 **Single article** (`url=`): Returns chunked, cleaned content for one article.
 
 **Search** (`q=`): Returns articles matching the query, ranked by relevance.
-
-## Caching
-
-The plugin uses Joomla's built-in cache system (`openfeeder` group). Cache is automatically invalidated when articles are saved.
 
 ## License
 

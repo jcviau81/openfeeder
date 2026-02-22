@@ -14,7 +14,7 @@ SITE_URL=https://example.com docker compose up -d
 
 # Verify it's running
 curl http://localhost:8080/.well-known/openfeeder.json
-curl http://localhost:8080/api/openfeeder
+curl http://localhost:8080/openfeeder
 ```
 
 ## Configuration
@@ -42,7 +42,7 @@ Returns the OpenFeeder discovery document describing the site and its capabiliti
 ### Content Endpoint
 
 ```
-GET /api/openfeeder
+GET /openfeeder
 ```
 
 | Parameter | Type | Description |
@@ -76,7 +76,7 @@ example.com {
     handle /.well-known/openfeeder.json {
         reverse_proxy localhost:8080
     }
-    handle /api/openfeeder* {
+    handle /openfeeder* {
         reverse_proxy localhost:8080
     }
 

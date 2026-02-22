@@ -162,7 +162,7 @@ async def discovery():
             "description": f"OpenFeeder sidecar for {SITE_NAME}",
         },
         "feed": {
-            "endpoint": "/api/openfeeder",
+            "endpoint": "/openfeeder",
             "type": "paginated",
         },
         "capabilities": ["search", "embeddings"],
@@ -174,7 +174,7 @@ async def discovery():
 # Content endpoint
 # ---------------------------------------------------------------------------
 
-@app.get("/api/openfeeder")
+@app.get("/openfeeder")
 async def content(
     url: str | None = Query(None, description="Relative path of the page to fetch"),
     q: str | None = Query(None, description="Semantic search query"),

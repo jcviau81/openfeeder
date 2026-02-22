@@ -7,7 +7,7 @@
     "description": "A blog about technology and open source."
   },
   "feed": {
-    "endpoint": "/api/openfeeder",
+    "endpoint": "/openfeeder",
     "type": "paginated"
   },
   "capabilities": [],

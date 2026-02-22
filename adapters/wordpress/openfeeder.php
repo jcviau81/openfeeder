@@ -33,7 +33,7 @@ function openfeeder_add_rewrite_rules() {
 		'top'
 	);
 	add_rewrite_rule(
-		'^api/openfeeder/?$',
+		'^openfeeder/?$',
 		'index.php?openfeeder_route=content',
 		'top'
 	);

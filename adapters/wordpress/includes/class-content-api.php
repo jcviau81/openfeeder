@@ -2,7 +2,7 @@
 /**
  * OpenFeeder content API endpoint.
  *
- * Handles GET /api/openfeeder requests. When a `url` parameter is provided,
+ * Handles GET /openfeeder requests. When a `url` parameter is provided,
  * returns chunked content for that post. Otherwise returns a paginated index
  * of all published posts.
  */

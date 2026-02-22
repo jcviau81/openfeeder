@@ -45,7 +45,7 @@ Returns a JSON document describing your site and its OpenFeeder capabilities. Se
 ### Content API
 
 ```
-GET /api/openfeeder
+GET /openfeeder
 ```
 
 **Index mode** (no `url` parameter): Returns a paginated list of all published posts.

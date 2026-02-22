@@ -37,7 +37,7 @@ class DiscoveryController extends ControllerBase {
         'description' => $description,
       ],
       'feed' => [
-        'endpoint' => '/api/openfeeder',
+        'endpoint' => '/openfeeder',
         'type' => 'paginated',
       ],
       'capabilities' => ['search'],

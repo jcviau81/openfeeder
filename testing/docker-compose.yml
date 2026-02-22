@@ -92,7 +92,6 @@ services:
       JOOMLA_DB_NAME: joomla
     volumes:
       - joomla_data:/var/www/html
-      - ../adapters/joomla:/var/www/html/plugins/system/openfeeder:ro
     depends_on:
       joomla-db:
         condition: service_healthy

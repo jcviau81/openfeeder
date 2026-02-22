@@ -55,7 +55,7 @@ class OpenFeeder extends CMSPlugin implements SubscriberInterface
             $controller->execute();
         }
 
-        if ($path === '/api/openfeeder') {
+        if ($path === '/openfeeder') {
             $controller = new ContentController($app, $this->params);
             $controller->execute();
         }

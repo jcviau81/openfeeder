@@ -49,6 +49,8 @@ This endpoint MUST:
 
 The content endpoint is defined in the discovery document under `feed.endpoint`.
 
+The content endpoint path is defined in the discovery document. The **recommended default** is `/openfeeder` (avoids conflicts with platform-specific API routers like Joomla, Django REST Framework, etc.).
+
 ### 3.1 Query Parameters
 
 | Parameter | Type | Required | Description |
@@ -130,7 +132,7 @@ OpenFeeder responses MUST NOT include:
 For sites with large amounts of content, implementing a vector database layer is strongly recommended:
 
 1. On content publish/update → chunk → embed → upsert into vector DB
-2. On `GET /api/openfeeder?q=<query>` → embed query → semantic search → return top-k chunks
+2. On `GET /openfeeder?q=<query>` → embed query → semantic search → return top-k chunks
 
 Recommended embedding models:
 - `sentence-transformers/all-MiniLM-L6-v2` (local, fast)

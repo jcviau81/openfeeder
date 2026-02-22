@@ -30,7 +30,7 @@ class OpenFeeder_Discovery {
 				'description' => $description,
 			),
 			'feed'         => array(
-				'endpoint' => '/api/openfeeder',
+				'endpoint' => '/openfeeder',
 				'type'     => 'paginated',
 			),
 			'capabilities' => array(),

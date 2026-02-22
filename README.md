@@ -23,7 +23,7 @@ This is broken. We're asking LLMs to dig through garbage to find meaning.
 
 ```
 https://yoursite.com/.well-known/openfeeder.json   ← discovery
-https://yoursite.com/api/openfeeder                ← content
+https://yoursite.com/openfeeder                ← content
 ```
 
 No scraping. No guessing. No noise. Just the content — structured, chunked, and ready.
@@ -37,13 +37,13 @@ No scraping. No guessing. No noise. Just the content — structured, chunked, an
 curl https://sketchynews.snaf.foo/.well-known/openfeeder.json
 
 # Index (all comics, paginated)
-curl https://sketchynews.snaf.foo/api/openfeeder
+curl https://sketchynews.snaf.foo/openfeeder
 
 # Semantic search
-curl "https://sketchynews.snaf.foo/api/openfeeder?q=ukraine"
+curl "https://sketchynews.snaf.foo/openfeeder?q=ukraine"
 
 # Specific page
-curl "https://sketchynews.snaf.foo/api/openfeeder?url=https://sketchynews.snaf.foo/comic/some-comic"
+curl "https://sketchynews.snaf.foo/openfeeder?url=https://sketchynews.snaf.foo/comic/some-comic"
 ```
 
 **Result vs raw HTML:**
@@ -71,19 +71,19 @@ Returns site metadata + endpoint location.
 
 ### 2. Index (no `url` param)
 ```
-GET /api/openfeeder?page=1
+GET /openfeeder?page=1
 ```
 Returns paginated list of all available content.
 
 ### 3. Fetch a specific page
 ```
-GET /api/openfeeder?url=/path/to/page
+GET /openfeeder?url=/path/to/page
 ```
 Returns clean, chunked content for that page.
 
 ### 4. Semantic search
 ```
-GET /api/openfeeder?q=your+query
+GET /openfeeder?q=your+query
 ```
 Returns the most relevant content chunks for the query.
 
@@ -125,7 +125,7 @@ services:
       - "8080:8080"
 ```
 
-Then route `/.well-known/openfeeder.json` and `/api/openfeeder` to port 8080 via Caddy/Nginx.
+Then route `/.well-known/openfeeder.json` and `/openfeeder` to port 8080 via Caddy/Nginx.
 
 → **[sidecar/](sidecar/)** — Python/FastAPI + ChromaDB + sentence-transformers
 
@@ -193,4 +193,6 @@ MIT — free to use, implement, and build on.
 
 ---
 
-*Created 2026-02-21 by Ember 🔥 & JC*
+---
+
+*Made with 🔥 by Ember & JC*

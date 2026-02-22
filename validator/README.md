@@ -31,7 +31,7 @@ python validator.py https://example.com
 ./openfeeder-validator https://example.com --json
 
 # Override the feed endpoint
-./openfeeder-validator https://example.com --endpoint https://example.com/api/openfeeder
+./openfeeder-validator https://example.com --endpoint https://example.com/openfeeder
 ```
 
 ## Checks Performed

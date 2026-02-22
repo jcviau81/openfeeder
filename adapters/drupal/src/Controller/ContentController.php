@@ -11,7 +11,7 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 
 /**
- * Handles GET /api/openfeeder requests.
+ * Handles GET /openfeeder requests.
  *
  * Without a `url` parameter, returns a paginated index of published nodes.
  * With a `url` parameter, returns chunked content for that node.

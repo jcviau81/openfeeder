@@ -43,7 +43,7 @@ class DiscoveryController
                 'description' => $description,
             ],
             'feed'         => [
-                'endpoint' => '/api/openfeeder',
+                'endpoint' => '/openfeeder',
                 'type'     => 'paginated',
             ],
             'capabilities' => [],

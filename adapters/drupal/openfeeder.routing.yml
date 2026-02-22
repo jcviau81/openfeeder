@@ -6,7 +6,7 @@ openfeeder.discovery:
     _access: 'TRUE'
 
 openfeeder.content:
-  path: '/api/openfeeder'
+  path: '/openfeeder'
   defaults:
     _controller: '\Drupal\openfeeder\Controller\ContentController::serve'
   requirements:
