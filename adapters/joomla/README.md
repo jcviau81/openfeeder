@@ -106,3 +106,18 @@ GET /openfeeder
 ## License
 
 GNU General Public License v2 or later.
+
+## Quick Install (Recommended)
+
+1. Copy `openfeeder.php` to your Joomla webroot
+2. Add these 3 lines to your `.htaccess` BEFORE the Joomla SEF section:
+
+```apache
+## OpenFeeder LLM endpoints
+RewriteRule ^\.well-known/openfeeder\.json$ openfeeder.php [L,QSA]
+RewriteRule ^openfeeder$ openfeeder.php [L,QSA]
+```
+
+3. Done! Test: `https://yoursite.com/.well-known/openfeeder.json`
+
+No plugin activation needed. Works on Joomla 4 and 5.
