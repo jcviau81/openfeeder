@@ -1,0 +1,30 @@
+# OpenFeeder Sidecar — Docker Compose
+#
+# Usage:
+#   SITE_URL=https://example.com docker compose up -d
+#
+# Or copy this file and hardcode your SITE_URL below.
+
+services:
+  openfeeder:
+    build: .
+    ports:
+      - "${PORT:-8080}:8080"
+    environment:
+      - SITE_URL=${SITE_URL:-https://snaf.foo/sketchynews}
+      - CRAWL_INTERVAL=${CRAWL_INTERVAL:-3600}
+      - MAX_PAGES=${MAX_PAGES:-500}
+      - PORT=8080
+      - EMBEDDING_MODEL=${EMBEDDING_MODEL:-all-MiniLM-L6-v2}
+    volumes:
+      - openfeeder_data:/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8080/healthz').raise_for_status()"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 60s
+
+volumes:
+  openfeeder_data:

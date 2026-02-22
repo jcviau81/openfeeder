@@ -1,0 +1,15 @@
+{
+  "version": "1.0",
+  "site": {
+    "name": "My WordPress Blog",
+    "url": "https://example.com/",
+    "language": "en-US",
+    "description": "A blog about technology and open source."
+  },
+  "feed": {
+    "endpoint": "/api/openfeeder",
+    "type": "paginated"
+  },
+  "capabilities": [],
+  "contact": "admin@example.com"
+}
