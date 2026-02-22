@@ -58,6 +58,48 @@ The **Universal Sidecar** handles sites you don't control (third-party, legacy) 
 
 ---
 
+## Business Impact
+
+OpenFeeder isn't just better for LLMs — it's better for your infrastructure.
+
+### 📉 Bandwidth savings
+AI crawlers are now a significant fraction of web traffic. Each one fetching your full HTML page gets:
+- Your entire DOM (headers, footers, nav, scripts, ads)
+- Duplicate content across pages
+- Assets they'll never use
+
+OpenFeeder serves **only the content** — typically **10–20x smaller** than the equivalent HTML page.
+
+```
+Full HTML page:  ~50–200 KB  (with scripts, styles inlined)
+OpenFeeder JSON:   ~1–10 KB  (pure content, no noise)
+```
+
+If 30% of your traffic is AI bots (a realistic number in 2026), that's 30% of your bandwidth budget that could shrink by 90%.
+
+### ⚡ Processing time & server load
+Serving an OpenFeeder response is cheaper than serving a full page:
+- **No template rendering** — no PHP/Jinja/Blade execution
+- **No asset pipeline** — no CSS/JS bundling
+- **Cacheable by design** — `Cache-Control`, `ETag`, `304 Not Modified` built into the spec
+- **Fewer repeated crawls** — LLMs get what they need in 1–2 requests instead of crawling 50 pages to reconstruct context
+
+### 🌱 Energy & carbon
+Less data transferred = less energy consumed — by your servers, by the CDN, and by the AI infrastructure processing your content. At scale, this is meaningful.
+
+### 💰 Token efficiency for LLM operators
+Every token an LLM processes costs money and time. A clean 1KB OpenFeeder response vs 50KB of HTML soup means:
+- **~50x fewer tokens** to process
+- Faster responses for end users
+- Lower inference costs for LLM providers
+
+This is why LLM providers and AI agents will actively *prefer* OpenFeeder-compatible sites — and why being early gives you an edge in AI-driven discovery.
+
+### 🤝 Control over how AI sees you
+Today, LLMs scrape your site and interpret it however they can. With OpenFeeder, **you decide what they get** — the right summary, the right metadata, the right context. No more AI hallucinating your product prices or misquoting your articles.
+
+---
+
 ## Live Demo
 
 **SketchyNews** is the world's first OpenFeeder-compatible site:
