@@ -11,6 +11,8 @@ RUN apt-get update && \
 WORKDIR /app
 
 COPY requirements.txt .
+# Install CPU-only PyTorch first to avoid pulling 3GB of CUDA packages
+RUN pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Pre-download the default embedding model at build time so the container
