@@ -45,6 +45,9 @@ $config = new JConfig();
 header('Content-Type: application/json; charset=utf-8');
 header('X-OpenFeeder: 1.0');
 header('Access-Control-Allow-Origin: *');
+header('X-RateLimit-Limit: 60');
+header('X-RateLimit-Remaining: 60');
+header('X-RateLimit-Reset: ' . (time() + 60));
 
 // Connect to DB using PDO
 try {
@@ -78,14 +81,38 @@ if (strpos($path, 'openfeeder.json') !== false) {
 }
 
 // ── Content endpoint ──────────────────────────────────────────
+
+/**
+ * Sanitize the ?url= parameter: extract pathname only, reject path traversal.
+ * Absolute URLs are stripped to pathname. Returns null on invalid input.
+ */
+function sanitize_url_param_joomla(string $raw): ?string {
+    $raw = trim($raw);
+    if (empty($raw)) return null;
+    $parsed = parse_url($raw);
+    $path = rtrim($parsed['path'] ?? '/', '/') ?: '/';
+    if (str_contains($path, '..')) return null;
+    return $path;
+}
+
 $table  = $prefix . 'content';
-$url    = $_GET['url']   ?? null;
+$rawUrl = $_GET['url'] ?? null;
+$url    = $rawUrl !== null ? sanitize_url_param_joomla((string)$rawUrl) : null;
 $page   = max(1, (int)($_GET['page']  ?? 1));
 $limit  = min(50, max(1, (int)($_GET['limit'] ?? 10)));
 $offset = ($page - 1) * $limit;
 
+// Sanitize ?q=: limit to 200 chars (strip_tags applied implicitly via DB parameterized query)
+$q = mb_substr(strip_tags($_GET['q'] ?? ''), 0, 200);
+
+if ($rawUrl !== null && $url === null) {
+    http_response_code(400);
+    echo json_encode(['schema' => 'openfeeder/1.0', 'error' => ['code' => 'INVALID_URL', 'message' => 'The ?url= parameter must be a valid relative path.']]);
+    exit;
+}
+
 if ($url) {
-    $alias = basename(rtrim(parse_url($url, PHP_URL_PATH) ?? '', '/'));
+    $alias = basename(rtrim($url, '/'));
     $stmt  = $pdo->prepare("SELECT id, title, introtext, `fulltext`, created, alias FROM `{$table}` WHERE state=1 AND alias=? LIMIT 1");
     $stmt->execute([$alias]);
     $art = $stmt->fetch(PDO::FETCH_OBJ);

@@ -195,4 +195,43 @@ Copyright (c) 2026 Jean-Christophe Viau. See [LICENSE](LICENSE) for details.
 
 ---
 
+## Security
+
+Full security guide: **[spec/SECURITY.md](spec/SECURITY.md)**
+
+### SSRF Protection
+
+All adapters validate the `?url=` parameter to accept only **relative paths** (no host, no scheme). Absolute URLs are stripped to pathname only. Path traversal (`..`) is rejected.
+
+### Optional API Key
+
+Set `apiKey` (Express) or `openfeeder_api_key` (WordPress) to require `Authorization: Bearer <key>` on all content requests. The discovery document (`/.well-known/openfeeder.json`) is always public.
+
+### Rate Limiting
+
+All responses include informational rate limit headers:
+```
+X-RateLimit-Limit: 60
+X-RateLimit-Remaining: 60
+X-RateLimit-Reset: <unix_timestamp>
+```
+
+Enforce rate limiting at the server level with **Nginx**:
+
+```nginx
+limit_req_zone $binary_remote_addr zone=openfeeder:10m rate=60r/m;
+
+location ~ ^/(openfeeder|\.well-known/openfeeder) {
+    limit_req zone=openfeeder burst=10 nodelay;
+    limit_req_status 429;
+    # ... proxy to your app
+}
+```
+
+### Query Sanitization
+
+The `?q=` parameter is limited to 200 characters and HTML is stripped before use.
+
+---
+
 *Made with 🔥 by Ember & JC*

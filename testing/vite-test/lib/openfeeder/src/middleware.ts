@@ -19,13 +19,40 @@ import type {
 
 const DEFAULT_LIMIT = 10;
 
+/**
+ * Sanitize the ?url= parameter: extract pathname only, reject path traversal.
+ * Absolute URLs are stripped to pathname. Returns null on invalid input.
+ */
+function sanitizeUrlParam(raw: string): string | null {
+  if (!raw) return null;
+  try {
+    const parsed = new URL(raw, "http://localhost");
+    const path = parsed.pathname.replace(/\/$/, "") || "/";
+    if (path.includes("..")) return null;
+    return path;
+  } catch {
+    return null;
+  }
+}
+
+function getRateLimitHeaders(): Record<string, string> {
+  const reset = String(Math.floor(Date.now() / 1000) + 60);
+  return {
+    "X-RateLimit-Limit": "60",
+    "X-RateLimit-Remaining": "60",
+    "X-RateLimit-Reset": reset,
+  };
+}
+
 function sendJson(res: ServerResponse, data: unknown, status = 200): void {
   const body = JSON.stringify(data, null, 2);
+  const rlHeaders = getRateLimitHeaders();
   res.writeHead(status, {
     "Content-Type": "application/json",
     "X-OpenFeeder": "1.0",
     "Access-Control-Allow-Origin": "*",
     "Content-Length": Buffer.byteLength(body),
+    ...rlHeaders,
   });
   res.end(body);
 }
@@ -80,13 +107,20 @@ export function createMiddleware(
       const content = getContent();
 
       // Single page mode
-      if (q.url) {
-        let normalized = q.url.split("?")[0].replace(/\/$/, "");
-        // Handle absolute URLs — extract just the pathname
-        try {
-          const parsed = new URL(normalized);
-          normalized = parsed.pathname.replace(/\/$/, "") || "/";
-        } catch { /* already relative */ }
+      if (q.url !== undefined) {
+        // Sanitize ?q=: limit to 200 chars, strip HTML
+        const normalized = sanitizeUrlParam(q.url);
+        if (!normalized) {
+          sendJson(
+            res,
+            {
+              schema: "openfeeder/1.0",
+              error: { code: "INVALID_URL", message: "The ?url= parameter must be a valid relative path." },
+            },
+            400
+          );
+          return;
+        }
         const item = content.find((c) => c.url === normalized);
         if (!item) {
           sendJson(
@@ -126,7 +160,8 @@ export function createMiddleware(
         100,
         Math.max(1, parseInt(q.limit ?? String(DEFAULT_LIMIT), 10) || DEFAULT_LIMIT)
       );
-      const search = (q.q ?? "").toLowerCase();
+      // Sanitize ?q=: limit to 200 chars, strip HTML
+      const search = (q.q ?? "").slice(0, 200).replace(/<[^>]*>/g, "").trim().toLowerCase();
 
       let filtered = content;
       if (search) {

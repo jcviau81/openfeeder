@@ -21,13 +21,70 @@ class OpenFeeder_Content_API {
 	const POSTS_PER_PAGE = 20;
 
 	/**
+	 * Sanitize the ?url= parameter: extract pathname only, reject path traversal.
+	 * Absolute URLs are stripped to pathname. Returns null on invalid input.
+	 *
+	 * @param string $raw Raw URL parameter.
+	 * @return string|null Sanitized path or null on failure.
+	 */
+	private function sanitize_url_param( string $raw ): ?string {
+		$raw = trim( $raw );
+		if ( empty( $raw ) ) {
+			return null;
+		}
+		$parsed = parse_url( $raw );
+		$path   = rtrim( $parsed['path'] ?? '/', '/' ) ?: '/';
+		if ( str_contains( $path, '..' ) ) {
+			return null;
+		}
+		return $path;
+	}
+
+	/**
+	 * Add rate limit headers to the current response.
+	 * These are informational — actual enforcement is at the server/Nginx level.
+	 */
+	private function add_rate_limit_headers(): void {
+		$reset = time() + 60;
+		header( 'X-RateLimit-Limit: 60' );
+		header( 'X-RateLimit-Remaining: 60' );
+		header( 'X-RateLimit-Reset: ' . $reset );
+	}
+
+	/**
 	 * Route the request to the appropriate handler.
 	 */
 	public function serve() {
-		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
-		$url = isset( $_GET['url'] ) ? sanitize_text_field( wp_unslash( $_GET['url'] ) ) : '';
+		// API key check: if openfeeder_api_key is set, require Authorization: Bearer <key>
+		$api_key = get_option( 'openfeeder_api_key', '' );
+		if ( ! empty( $api_key ) ) {
+			$auth_header = isset( $_SERVER['HTTP_AUTHORIZATION'] ) ? trim( $_SERVER['HTTP_AUTHORIZATION'] ) : '';
+			if ( $auth_header !== 'Bearer ' . $api_key ) {
+				$this->add_rate_limit_headers();
+				wp_send_json(
+					array(
+						'schema' => 'openfeeder/1.0',
+						'error'  => array(
+							'code'    => 'UNAUTHORIZED',
+							'message' => 'Valid API key required. Include Authorization: Bearer <key> header.',
+						),
+					),
+					401
+				);
+				return;
+			}
+		}
 
-		if ( ! empty( $url ) ) {
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$raw_url = isset( $_GET['url'] ) ? sanitize_text_field( wp_unslash( $_GET['url'] ) ) : '';
+
+		if ( ! empty( $raw_url ) ) {
+			$url = $this->sanitize_url_param( $raw_url );
+			if ( null === $url ) {
+				$this->add_rate_limit_headers();
+				$this->send_error( 'INVALID_URL', 'The ?url= parameter must be a valid relative path.', 400 );
+				return;
+			}
 			$this->serve_single( $url );
 		} else {
 			$this->serve_index();
@@ -118,25 +175,35 @@ class OpenFeeder_Content_API {
 	private function serve_index() {
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
 		$page  = isset( $_GET['page'] ) ? max( 1, absint( $_GET['page'] ) ) : 1;
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$q     = isset( $_GET['q'] ) ? mb_substr( sanitize_text_field( wp_unslash( $_GET['q'] ) ), 0, 200 ) : '';
 		$cache = new OpenFeeder_Cache();
 
-		// Check cache.
-		$cache_key = $cache->index_key( $page );
-		$cached    = $cache->get( $cache_key );
+		// Check cache (only when no search query).
+		if ( empty( $q ) ) {
+			$cache_key = $cache->index_key( $page );
+			$cached    = $cache->get( $cache_key );
 
-		if ( false !== $cached ) {
-			$this->send_json( $cached['data'], 'HIT' );
-			return;
+			if ( false !== $cached ) {
+				$this->send_json( $cached['data'], 'HIT' );
+				return;
+			}
 		}
 
-		$query = new WP_Query( array(
+		$query_args = array(
 			'post_type'      => 'post',
 			'post_status'    => 'publish',
 			'posts_per_page' => self::POSTS_PER_PAGE,
 			'paged'          => $page,
 			'orderby'        => 'date',
 			'order'          => 'DESC',
-		) );
+		);
+
+		if ( ! empty( $q ) ) {
+			$query_args['s'] = $q;
+		}
+
+		$query = new WP_Query( $query_args );
 
 		$total_pages = (int) $query->max_num_pages;
 		$items       = array();
@@ -169,7 +236,9 @@ class OpenFeeder_Content_API {
 			'items'       => $items,
 		);
 
-		$cache->set( $cache_key, $data );
+		if ( empty( $q ) ) {
+			$cache->set( $cache_key, $data );
+		}
 
 		$this->send_json( $data, 'MISS' );
 	}
@@ -223,6 +292,7 @@ class OpenFeeder_Content_API {
 		header( 'X-OpenFeeder: 1.0' );
 		header( 'Access-Control-Allow-Origin: *' );
 		header( 'X-OpenFeeder-Cache: ' . $cache_state );
+		$this->add_rate_limit_headers();
 
 		echo wp_json_encode( $data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
 		exit;
@@ -240,6 +310,7 @@ class OpenFeeder_Content_API {
 		header( 'Content-Type: application/json; charset=utf-8' );
 		header( 'X-OpenFeeder: 1.0' );
 		header( 'Access-Control-Allow-Origin: *' );
+		$this->add_rate_limit_headers();
 
 		echo wp_json_encode(
 			array(

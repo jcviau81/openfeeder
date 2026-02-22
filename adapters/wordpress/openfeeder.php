@@ -184,6 +184,11 @@ function openfeeder_register_settings() {
 		'default'           => 50,
 		'sanitize_callback' => 'absint',
 	) );
+	register_setting( 'openfeeder_settings', 'openfeeder_api_key', array(
+		'type'              => 'string',
+		'default'           => '',
+		'sanitize_callback' => 'sanitize_text_field',
+	) );
 }
 add_action( 'admin_init', 'openfeeder_register_settings' );
 
@@ -254,6 +259,21 @@ function openfeeder_settings_page() {
 						</label>
 						<p class="description">
 							<?php esc_html_e( 'When enabled, AI crawlers (GPTBot, ClaudeBot, PerplexityBot…) visiting any page will receive a structured JSON response directing them to use OpenFeeder endpoints instead of scraping HTML.', 'openfeeder' ); ?>
+						</p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row">
+						<label for="openfeeder_api_key">
+							<?php esc_html_e( 'API Key', 'openfeeder' ); ?>
+						</label>
+					</th>
+					<td>
+						<input type="text" id="openfeeder_api_key" name="openfeeder_api_key"
+							value="<?php echo esc_attr( get_option( 'openfeeder_api_key', '' ) ); ?>"
+							class="regular-text" autocomplete="off" />
+						<p class="description">
+							<?php esc_html_e( 'Optional. If set, requests to /openfeeder must include an Authorization: Bearer &lt;key&gt; header. Leave blank to allow public access. The discovery document (/.well-known/openfeeder.json) is always public.', 'openfeeder' ); ?>
 						</p>
 					</td>
 				</tr>

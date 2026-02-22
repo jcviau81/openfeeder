@@ -21,13 +21,46 @@ const HEADERS = {
 };
 
 /**
+ * Returns rate limit headers with Reset = now + 60 seconds.
+ * @returns {object}
+ */
+function getRateLimitHeaders() {
+  return {
+    'X-RateLimit-Limit': '60',
+    'X-RateLimit-Remaining': '60',
+    'X-RateLimit-Reset': String(Math.floor(Date.now() / 1000) + 60),
+  };
+}
+
+/**
+ * Sanitize the ?url= parameter: extract pathname only, reject path traversal.
+ * Absolute URLs are stripped to pathname. Returns null on invalid input.
+ *
+ * @param {string|undefined} raw
+ * @returns {string|null}
+ */
+function sanitizeUrlParam(raw) {
+  if (!raw) return null;
+  try {
+    // If absolute URL, extract pathname only
+    const parsed = new URL(raw, 'http://localhost');
+    const path = parsed.pathname.replace(/\/$/, '') || '/';
+    // Reject path traversal
+    if (path.includes('..')) return null;
+    return path;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * @param {import('express').Response} res
  * @param {string} code
  * @param {string} message
  * @param {number} status
  */
 function sendError(res, code, message, status) {
-  res.set(HEADERS).status(status).json({
+  res.set({ ...HEADERS, ...getRateLimitHeaders() }).status(status).json({
     schema: 'openfeeder/1.0',
     error: { code, message },
   });
@@ -43,18 +76,17 @@ async function handleContent(req, res, config) {
     const urlParam = req.query.url;
     const pageParam = req.query.page;
     const limitParam = req.query.limit;
-    const query = req.query.q || '';
+    // Sanitize ?q=: limit to 200 chars, strip HTML
+    const query = (req.query.q || '').slice(0, 200).replace(/<[^>]*>/g, '').trim();
+
+    const allHeaders = { ...HEADERS, ...getRateLimitHeaders() };
 
     // ── Single page mode ──────────────────────────────────────────────────
     if (urlParam) {
-      // Normalise: extract only the pathname so callers don't need to
-      // handle full absolute URLs (the validator sends the full URL).
-      let normalizedUrl = String(urlParam).split('?')[0].replace(/\/$/, '');
-      try {
-        const parsed = new URL(normalizedUrl);
-        normalizedUrl = parsed.pathname.replace(/\/$/, '') || '/';
-      } catch {
-        // already relative — keep as-is
+      const normalizedUrl = sanitizeUrlParam(String(urlParam));
+
+      if (!normalizedUrl) {
+        return sendError(res, 'INVALID_URL', 'The ?url= parameter must be a valid relative path.', 400);
       }
 
       let item;
@@ -87,7 +119,7 @@ async function handleContent(req, res, config) {
         },
       };
 
-      return res.set(HEADERS).status(200).json(body);
+      return res.set(allHeaders).status(200).json(body);
     }
 
     // ── Index mode ────────────────────────────────────────────────────────
@@ -108,8 +140,8 @@ async function handleContent(req, res, config) {
     const filteredItems = query
       ? rawItems.filter(
           (item) =>
-            item.title.toLowerCase().includes(String(query).toLowerCase()) ||
-            (item.content || '').toLowerCase().includes(String(query).toLowerCase())
+            item.title.toLowerCase().includes(query.toLowerCase()) ||
+            (item.content || '').toLowerCase().includes(query.toLowerCase())
         )
       : rawItems;
 
@@ -130,7 +162,7 @@ async function handleContent(req, res, config) {
       items,
     };
 
-    return res.set(HEADERS).status(200).json(body);
+    return res.set(allHeaders).status(200).json(body);
 
   } catch (err) {
     console.error('[openfeeder] Unexpected error:', err);

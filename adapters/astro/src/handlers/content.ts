@@ -17,14 +17,41 @@ import type {
 const DEFAULT_LIMIT = 10;
 const MAX_LIMIT = 100;
 
-const HEADERS = {
+const BASE_HEADERS = {
   "Content-Type": "application/json",
   "X-OpenFeeder": "1.0",
   "Access-Control-Allow-Origin": "*",
 };
 
+/** Returns headers including dynamic rate limit fields. */
+function getHeaders(): Record<string, string> {
+  const reset = String(Math.floor(Date.now() / 1000) + 60);
+  return {
+    ...BASE_HEADERS,
+    "X-RateLimit-Limit": "60",
+    "X-RateLimit-Remaining": "60",
+    "X-RateLimit-Reset": reset,
+  };
+}
+
+/**
+ * Sanitize the ?url= parameter: extract pathname only, reject path traversal.
+ * Absolute URLs are stripped to pathname. Returns null on invalid input.
+ */
+function sanitizeUrlParam(raw: string | null): string | null {
+  if (!raw) return null;
+  try {
+    const parsed = new URL(raw, "http://localhost");
+    const path = parsed.pathname.replace(/\/$/, "") || "/";
+    if (path.includes("..")) return null;
+    return path;
+  } catch {
+    return null;
+  }
+}
+
 function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), { status, headers: HEADERS });
+  return new Response(JSON.stringify(body), { status, headers: getHeaders() });
 }
 
 function errorResponse(code: string, message: string, status: number): Response {
@@ -39,17 +66,19 @@ export async function handleContent(
   const urlParam = searchParams.get("url");
   const pageParam = searchParams.get("page");
   const limitParam = searchParams.get("limit");
-  const query = searchParams.get("q") ?? "";
+  // Sanitize ?q=: limit to 200 chars, strip HTML
+  const query = (searchParams.get("q") ?? "").slice(0, 200).replace(/<[^>]*>/g, "").trim();
 
   // ── Single page mode ──────────────────────────────────────────────────────
-  if (urlParam) {
-    // Normalise: strip query string, trailing slash, and absolute URL prefix
-    let normalizedUrl = urlParam.split("?")[0].replace(/\/$/, "");
-    try {
-      const parsed = new URL(normalizedUrl);
-      normalizedUrl = parsed.pathname.replace(/\/$/, "") || "/";
-    } catch {
-      // already relative
+  if (urlParam !== null) {
+    const normalizedUrl = sanitizeUrlParam(urlParam);
+
+    if (!normalizedUrl) {
+      return errorResponse(
+        "INVALID_URL",
+        "The ?url= parameter must be a valid relative path.",
+        400
+      );
     }
 
     const item = await config.getItem(normalizedUrl);

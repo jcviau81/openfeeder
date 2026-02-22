@@ -9,6 +9,7 @@ Creates a FastAPI APIRouter that serves the OpenFeeder protocol endpoints:
 from __future__ import annotations
 
 import logging
+import time
 from typing import Callable, Optional
 from urllib.parse import urlparse
 
@@ -28,6 +29,30 @@ OPENFEEDER_HEADERS = {
 }
 
 
+def _get_headers() -> dict:
+    """Return OpenFeeder headers including dynamic rate limit headers."""
+    reset = str(int(time.time()) + 60)
+    return {
+        **OPENFEEDER_HEADERS,
+        "X-RateLimit-Limit": "60",
+        "X-RateLimit-Remaining": "60",
+        "X-RateLimit-Reset": reset,
+    }
+
+
+def sanitize_url_param(raw: str) -> str | None:
+    """
+    Sanitize the ?url= parameter: extract pathname only, reject path traversal.
+    Absolute URLs are stripped to pathname. Returns None on invalid input.
+    """
+    if not raw:
+        return None
+    path = urlparse(raw).path.rstrip('/') or '/'
+    if '..' in path:
+        return None
+    return path
+
+
 def _error_response(code: str, message: str, status: int) -> JSONResponse:
     return JSONResponse(
         status_code=status,
@@ -35,7 +60,7 @@ def _error_response(code: str, message: str, status: int) -> JSONResponse:
             "schema": "openfeeder/1.0",
             "error": {"code": code, "message": message},
         },
-        headers=OPENFEEDER_HEADERS,
+        headers=_get_headers(),
     )
 
 
@@ -95,7 +120,7 @@ def openfeeder_router(
             "capabilities": ["search"],
             "contact": None,
         }
-        return JSONResponse(content=body, headers=OPENFEEDER_HEADERS)
+        return JSONResponse(content=body, headers=_get_headers())
 
     # ------------------------------------------------------------------
     # Content endpoint
@@ -109,17 +134,20 @@ def openfeeder_router(
         q: Optional[str] = Query(default=None),
     ) -> JSONResponse:
 
+        # Sanitize ?q=: limit to 200 chars, strip HTML is implicit (not rendered)
+        query = (q or '')[:200]
+
         # ── Single page mode ─────────────────────────────────────────
         if url is not None:
-            # Normalise: extract only the pathname so callers can pass
-            # absolute URLs (the validator does this).
-            normalized_url = str(url).split("?")[0].rstrip("/")
-            try:
-                parsed = urlparse(normalized_url)
-                if parsed.scheme:
-                    normalized_url = parsed.path.rstrip("/") or "/"
-            except Exception:
-                pass
+            # Sanitize: extract pathname only, reject path traversal
+            normalized_url = sanitize_url_param(str(url))
+
+            if normalized_url is None:
+                return _error_response(
+                    "INVALID_URL",
+                    "The ?url= parameter must be a valid relative path.",
+                    400,
+                )
 
             try:
                 item = await get_item(normalized_url)
@@ -148,7 +176,7 @@ def openfeeder_router(
                     "cache_age_seconds": None,
                 },
             }
-            return JSONResponse(content=body, headers=OPENFEEDER_HEADERS)
+            return JSONResponse(content=body, headers=_get_headers())
 
         # ── Index mode ───────────────────────────────────────────────
         try:
@@ -170,7 +198,6 @@ def openfeeder_router(
             return _error_response("INTERNAL_ERROR", "Failed to fetch items.", 500)
 
         # Optional search filter (substring match on title + content)
-        query = q or ""
         if query:
             query_lower = query.lower()
             raw_items = [
@@ -198,6 +225,6 @@ def openfeeder_router(
             "total_pages": total_pages,
             "items": items_out,
         }
-        return JSONResponse(content=body, headers=OPENFEEDER_HEADERS)
+        return JSONResponse(content=body, headers=_get_headers())
 
     return router
