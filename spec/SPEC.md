@@ -237,6 +237,36 @@ Disallow: /
 
 ---
 
+## 12. Analytics
+
+OpenFeeder supports optional server-side analytics to help site owners understand LLM usage patterns.
+
+### Tracked Events
+
+| Field | Description |
+|-------|-------------|
+| `bot_name` | Detected bot (GPTBot, ClaudeBot, etc.) |
+| `bot_family` | Company (openai, anthropic, google, perplexity, common-crawl, cohere, meta, amazon, you, bytedance) |
+| `endpoint` | search / fetch / index / discovery |
+| `query` | Search query string (?q=) |
+| `intent` | X-OpenFeeder-Intent value if present |
+| `results` | Number of items/chunks returned |
+| `cached` | Whether response was served from cache |
+| `response_ms` | Response time in milliseconds |
+
+### Privacy
+
+Analytics track bot requests only. No human user data is collected.
+Queries are logged as-is — if you need to anonymize, hash queries before sending.
+
+### Supported Providers
+
+- **Umami** — recommended (GDPR-friendly, self-hosted)
+- **GA4** — via Measurement Protocol (no cookies)
+- **none** — default, analytics disabled
+
+---
+
 *This spec is a living document. Version 1.0 is a draft. Feedback welcome via GitHub issues.*
 
 ---

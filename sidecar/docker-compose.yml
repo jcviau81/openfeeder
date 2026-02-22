@@ -17,6 +17,10 @@ services:
       - PORT=8080
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-all-MiniLM-L6-v2}
       - OPENFEEDER_WEBHOOK_SECRET=${OPENFEEDER_WEBHOOK_SECRET:-}
+      - ANALYTICS_PROVIDER=${ANALYTICS_PROVIDER:-none}
+      - ANALYTICS_URL=${ANALYTICS_URL:-}
+      - ANALYTICS_SITE_ID=${ANALYTICS_SITE_ID:-}
+      - ANALYTICS_API_KEY=${ANALYTICS_API_KEY:-}
     volumes:
       - openfeeder_data:/data
     restart: unless-stopped

@@ -22,6 +22,7 @@
 const { handleDiscovery } = require('./handlers/discovery');
 const { handleContent } = require('./handlers/content');
 const { createGatewayMiddleware } = require('./gateway');
+const { detectBot, Analytics } = require('./analytics');
 
 /**
  * @typedef {Object} OpenFeederConfig
@@ -31,6 +32,7 @@ const { createGatewayMiddleware } = require('./gateway');
  * @property {string} [siteDescription] - Brief description of the site
  * @property {string} [apiKey] - Optional. If set, all /openfeeder requests must include Authorization: Bearer <apiKey>
  * @property {string[]} [excludePaths] - Optional. Path prefixes to exclude from content listing (e.g. ["/checkout", "/cart", "/my-account"])
+ * @property {{ provider?: string, url?: string, siteId?: string, apiKey?: string }} [analytics] - Optional. Analytics config (Umami | GA4 | none)
  * @property {function(number, number): Promise<{items: OpenFeederRawItem[], total: number}>} getItems
  *   - Returns a page of items. Receives (page, limit).
  *   - IMPORTANT: getItems should NEVER return private, internal, or user-specific data.
@@ -63,12 +65,40 @@ function openFeederMiddleware(config) {
   }
 
   const gateway = config.llmGateway ? createGatewayMiddleware(config) : null;
+  const analyticsClient = new Analytics(config.analytics || {});
+
+  /**
+   * Track an analytics event after response is sent.
+   * @param {import('express').Request} req
+   * @param {import('express').Response} res
+   * @param {string} endpoint
+   * @param {number} startTime
+   */
+  function trackAfterResponse(req, res, endpoint, startTime) {
+    res.on('finish', () => {
+      const { botName, botFamily } = detectBot(req.headers['user-agent'] || '');
+      const query = req.query && req.query.q ? String(req.query.q) : '';
+      analyticsClient.track({
+        hostname: config.siteName,
+        url: req.originalUrl || req.url,
+        botName,
+        botFamily,
+        endpoint,
+        query,
+        intent: req.headers['x-openfeeder-intent'] || '',
+        results: res._openfeederResults || 0,
+        cached: res.getHeader('x-openfeeder-cache') === 'HIT',
+        responseMs: Math.round(Date.now() - startTime),
+      });
+    });
+  }
 
   return function openfeeder(req, res, next) {
     const pathname = (req.path || '/').split('?')[0];
 
     // Discovery document is ALWAYS public — no API key required
     if (pathname === '/.well-known/openfeeder.json') {
+      trackAfterResponse(req, res, 'discovery', Date.now());
       return handleDiscovery(req, res, config);
     }
 
@@ -97,6 +127,13 @@ function openFeederMiddleware(config) {
             });
         }
       }
+
+      // Determine endpoint type for analytics
+      const q = req.query && req.query.q;
+      const url = req.query && req.query.url;
+      const endpoint = q ? 'search' : url ? 'fetch' : 'index';
+      trackAfterResponse(req, res, endpoint, Date.now());
+
       return handleContent(req, res, config);
     }
 

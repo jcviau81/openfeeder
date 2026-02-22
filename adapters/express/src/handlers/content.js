@@ -163,6 +163,7 @@ async function handleContent(req, res, config) {
         return res.status(304).end();
       }
 
+      res._openfeederResults = chunks.length;
       return res.set({
         ...HEADERS,
         ...getRateLimitHeaders(),
@@ -220,6 +221,8 @@ async function handleContent(req, res, config) {
 
     const etag = makeEtag(body);
     const lastMod = getLastModified(filteredItems);
+
+    res._openfeederResults = items.length;
 
     if (req.headers['if-none-match'] === etag) {
       return res.status(304).end();

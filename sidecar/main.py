@@ -32,6 +32,7 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
+from analytics import Analytics, detect_bot
 from chunker import chunk_html
 from crawler import crawl
 from indexer import Indexer
@@ -46,6 +47,11 @@ MAX_PAGES = int(os.environ.get("MAX_PAGES", "500"))
 PORT = int(os.environ.get("PORT", "8080"))
 EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 WEBHOOK_SECRET = os.environ.get("OPENFEEDER_WEBHOOK_SECRET", "")
+
+ANALYTICS_PROVIDER = os.environ.get("ANALYTICS_PROVIDER", "none")
+ANALYTICS_URL = os.environ.get("ANALYTICS_URL", "")
+ANALYTICS_SITE_ID = os.environ.get("ANALYTICS_SITE_ID", "")
+ANALYTICS_API_KEY = os.environ.get("ANALYTICS_API_KEY", "")
 
 if not SITE_URL:
     sys.exit("FATAL: SITE_URL environment variable is required.")
@@ -71,6 +77,8 @@ indexer: Indexer | None = None
 scheduler: AsyncIOScheduler | None = None
 _last_crawl_ts: float = 0.0
 _crawl_running = False
+
+analytics = Analytics(ANALYTICS_PROVIDER, ANALYTICS_URL, ANALYTICS_SITE_ID, ANALYTICS_API_KEY)
 
 
 async def run_crawl() -> None:
@@ -157,9 +165,10 @@ async def add_openfeeder_headers(request: Request, call_next):
 # ---------------------------------------------------------------------------
 
 @app.get("/.well-known/openfeeder.json")
-async def discovery():
+async def discovery(request: Request):
     """OpenFeeder discovery document (spec §2)."""
-    return {
+    start_time = time.time()
+    body = {
         "version": "1.0",
         "site": {
             "name": SITE_NAME,
@@ -174,6 +183,20 @@ async def discovery():
         "capabilities": ["search", "embeddings"],
         "contact": None,
     }
+    bot_name, bot_family = detect_bot(request.headers.get("user-agent", ""))
+    await analytics.track({
+        "hostname": SITE_NAME,
+        "url": str(request.url),
+        "bot_name": bot_name,
+        "bot_family": bot_family,
+        "endpoint": "discovery",
+        "query": "",
+        "intent": request.headers.get("x-openfeeder-intent", ""),
+        "results": 0,
+        "cached": False,
+        "response_ms": int((time.time() - start_time) * 1000),
+    })
+    return body
 
 
 # ---------------------------------------------------------------------------
@@ -182,6 +205,7 @@ async def discovery():
 
 @app.get("/openfeeder")
 async def content(
+    request: Request,
     url: str | None = Query(None, description="Relative path of the page to fetch"),
     q: str | None = Query(None, description="Semantic search query"),
     page: int = Query(1, ge=1, description="Page number (index mode)"),
@@ -194,15 +218,31 @@ async def content(
     - url param → chunks for that specific page.
     - q param → semantic search across all content.
     """
+    start_time = time.time()
+    bot_name, bot_family = detect_bot(request.headers.get("user-agent", ""))
 
     cache_age = int(time.time() - _last_crawl_ts) if _last_crawl_ts else None
     cached = _last_crawl_ts > 0
+
+    async def _track(endpoint: str, result_count: int, is_cached: bool) -> None:
+        await analytics.track({
+            "hostname": SITE_NAME,
+            "url": str(request.url),
+            "bot_name": bot_name,
+            "bot_family": bot_family,
+            "endpoint": endpoint,
+            "query": q or "",
+            "intent": request.headers.get("x-openfeeder-intent", ""),
+            "results": result_count,
+            "cached": is_cached,
+            "response_ms": int((time.time() - start_time) * 1000),
+        })
 
     # ── Index mode (no url) ──────────────────────────────────────────
     if url is None and q is None:
         items, total = indexer.get_all_pages(page=page, limit=limit)
         total_pages = max(1, math.ceil(total / limit))
-        return JSONResponse(
+        response = JSONResponse(
             content={
                 "schema": "openfeeder/1.0",
                 "type": "index",
@@ -212,11 +252,14 @@ async def content(
             },
             headers={"X-OpenFeeder-Cache": "HIT" if cached else "MISS"},
         )
+        await _track("index", len(items), cached)
+        return response
 
     # ── Search mode (q param) ───────────────────────────────────────
     if q:
         results = indexer.search(query=q, limit=limit, url_filter=url)
         if not results:
+            await _track("search", 0, cached)
             return _error_response("NOT_FOUND", "No results found for query.", 404)
 
         # Group by URL for response — use first result's page metadata
@@ -233,7 +276,7 @@ async def content(
             for r in results
         ]
 
-        return JSONResponse(
+        response = JSONResponse(
             content={
                 "schema": "openfeeder/1.0",
                 "url": first.url,
@@ -253,6 +296,8 @@ async def content(
             },
             headers={"X-OpenFeeder-Cache": "HIT" if cached else "MISS"},
         )
+        await _track("search", len(chunks), cached)
+        return response
 
     # ── Single page mode (url param, no q) ──────────────────────────
     # Resolve the url parameter to a full URL for lookup
@@ -260,11 +305,12 @@ async def content(
 
     page_meta = indexer.get_page_meta(full_url)
     if not page_meta:
+        await _track("fetch", 0, cached)
         return _error_response("NOT_FOUND", f"Page not found: {url}", 404)
 
     chunks = indexer.get_chunks_for_url(full_url, limit=limit)
 
-    return JSONResponse(
+    response = JSONResponse(
         content={
             "schema": "openfeeder/1.0",
             "url": full_url,
@@ -284,6 +330,8 @@ async def content(
         },
         headers={"X-OpenFeeder-Cache": "HIT" if cached else "MISS"},
     )
+    await _track("fetch", len(chunks), cached)
+    return response
 
 
 # ---------------------------------------------------------------------------
