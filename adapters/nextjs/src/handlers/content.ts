@@ -7,6 +7,7 @@
  *   ?q=search+term          → search (filtered index)
  */
 
+import { createHash } from "crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { chunkContent, summarise } from "../chunker.js";
 import type {
@@ -33,6 +34,21 @@ function getHeaders(): Record<string, string> {
     "X-RateLimit-Remaining": "60",
     "X-RateLimit-Reset": reset,
   };
+}
+
+/** Compute a quoted MD5 ETag from arbitrary data. */
+function makeEtag(data: unknown): string {
+  return '"' + createHash("md5").update(JSON.stringify(data)).digest("hex").slice(0, 16) + '"';
+}
+
+/** Return RFC 7231 date of the most recently published item. */
+function getLastModified(items: Array<{ published?: string }>): string {
+  const dates = items
+    .map((i) => new Date(i.published ?? 0))
+    .filter((d) => !isNaN(d.getTime()));
+  return dates.length
+    ? new Date(Math.max(...dates.map((d) => d.getTime()))).toUTCString()
+    : new Date().toUTCString();
 }
 
 /**
@@ -109,7 +125,22 @@ export async function handleContent(
       },
     };
 
-    return NextResponse.json(body, { headers: getHeaders() });
+    const etag = makeEtag(body);
+    const lastMod = getLastModified([item]);
+
+    if (request.headers.get("if-none-match") === etag) {
+      return new NextResponse(null, { status: 304 });
+    }
+
+    return NextResponse.json(body, {
+      headers: {
+        ...getHeaders(),
+        "Cache-Control": "public, max-age=300, stale-while-revalidate=60",
+        "ETag": etag,
+        "Last-Modified": lastMod,
+        "Vary": "Accept-Encoding",
+      },
+    });
   }
 
   // ── Index mode ────────────────────────────────────────────────────────────
@@ -147,5 +178,20 @@ export async function handleContent(
     items,
   };
 
-  return NextResponse.json(body, { headers: getHeaders() });
+  const etag = makeEtag(body);
+  const lastMod = getLastModified(filteredItems);
+
+  if (request.headers.get("if-none-match") === etag) {
+    return new NextResponse(null, { status: 304 });
+  }
+
+  return NextResponse.json(body, {
+    headers: {
+      ...getHeaders(),
+      "Cache-Control": "public, max-age=300, stale-while-revalidate=60",
+      "ETag": etag,
+      "Last-Modified": lastMod,
+      "Vary": "Accept-Encoding",
+    },
+  });
 }

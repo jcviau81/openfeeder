@@ -9,6 +9,7 @@ use Drupal\openfeeder\Service\ChunkerService;
 use Symfony\Component\DependencyInjection\ContainerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
 
 /**
  * Handles GET /openfeeder requests.
@@ -81,7 +82,7 @@ class ContentController extends ControllerBase {
    * @return \Symfony\Component\HttpFoundation\JsonResponse
    *   The JSON response.
    */
-  public function serve(Request $request): JsonResponse {
+  public function serve(Request $request): JsonResponse|Response {
     $config = $this->config('openfeeder.settings');
     $enabled = $config->get('enabled') ?? TRUE;
 
@@ -114,7 +115,7 @@ class ContentController extends ControllerBase {
    * @return \Symfony\Component\HttpFoundation\JsonResponse
    *   The JSON response.
    */
-  protected function serveSingle(Request $request, string $url): JsonResponse {
+  protected function serveSingle(Request $request, string $url): JsonResponse|Response {
     $node = $this->findNodeByUrl($url);
 
     if (!$node) {
@@ -137,7 +138,7 @@ class ContentController extends ControllerBase {
       $data['chunks'] = array_slice($data['chunks'], 0, $limit);
       $data['meta']['returned_chunks'] = count($data['chunks']);
 
-      return $this->jsonResponse($data, 'HIT');
+      return $this->jsonResponse($data, 'HIT', $request);
     }
 
     // Build response.
@@ -189,7 +190,7 @@ class ContentController extends ControllerBase {
     $data['chunks'] = array_slice($data['chunks'], 0, $limit);
     $data['meta']['returned_chunks'] = count($data['chunks']);
 
-    return $this->jsonResponse($data, 'MISS');
+    return $this->jsonResponse($data, 'MISS', $request);
   }
 
   /**
@@ -201,7 +202,7 @@ class ContentController extends ControllerBase {
    * @return \Symfony\Component\HttpFoundation\JsonResponse
    *   The JSON response.
    */
-  protected function serveIndex(Request $request): JsonResponse {
+  protected function serveIndex(Request $request): JsonResponse|Response {
     $page = max(1, (int) $request->query->get('page', 1));
 
     // Check cache.
@@ -209,7 +210,7 @@ class ContentController extends ControllerBase {
     $cached = $this->cacheService->get($cache_key);
 
     if ($cached !== FALSE) {
-      return $this->jsonResponse($cached['data'], 'HIT');
+      return $this->jsonResponse($cached['data'], 'HIT', $request);
     }
 
     $storage = $this->entityTypeManager()->getStorage('node');
@@ -264,7 +265,7 @@ class ContentController extends ControllerBase {
 
     $this->cacheService->set($cache_key, $data, ['node_list']);
 
-    return $this->jsonResponse($data, 'MISS');
+    return $this->jsonResponse($data, 'MISS', $request);
   }
 
   /**
@@ -278,7 +279,7 @@ class ContentController extends ControllerBase {
    * @return \Symfony\Component\HttpFoundation\JsonResponse
    *   The JSON response.
    */
-  protected function serveSearch(Request $request, string $query): JsonResponse {
+  protected function serveSearch(Request $request, string $query): JsonResponse|Response {
     $limit = (int) ($request->query->get('limit', 10));
     $limit = min(max($limit, 1), 50);
 
@@ -358,7 +359,7 @@ class ContentController extends ControllerBase {
       'items' => $items,
     ];
 
-    return $this->jsonResponse($data, 'MISS');
+    return $this->jsonResponse($data, 'MISS', $request);
   }
 
   /**
@@ -401,22 +402,82 @@ class ContentController extends ControllerBase {
   }
 
   /**
-   * Send a JSON response with OpenFeeder headers.
+   * Compute RFC 7231 Last-Modified date from response data.
+   *
+   * @param array $data
+   *   Response data array.
+   *
+   * @return string
+   *   RFC 7231 formatted date string.
+   */
+  protected function getLastModifiedFromData(array $data): string {
+    $timestamps = [];
+
+    if (!empty($data['published'])) {
+      $t = strtotime($data['published']);
+      if ($t) {
+        $timestamps[] = $t;
+      }
+    }
+    if (!empty($data['updated'])) {
+      $t = strtotime($data['updated']);
+      if ($t) {
+        $timestamps[] = $t;
+      }
+    }
+    if (isset($data['items']) && is_array($data['items'])) {
+      foreach ($data['items'] as $item) {
+        if (!empty($item['published'])) {
+          $t = strtotime($item['published']);
+          if ($t) {
+            $timestamps[] = $t;
+          }
+        }
+      }
+    }
+
+    $maxTs = !empty($timestamps) ? max($timestamps) : time();
+    return gmdate('D, d M Y H:i:s T', $maxTs);
+  }
+
+  /**
+   * Send a JSON response with OpenFeeder headers and HTTP caching support.
+   *
+   * When a Request is provided, computes an ETag and checks If-None-Match
+   * to support 304 Not Modified responses.
    *
    * @param array $data
    *   Response data.
    * @param string $cache_state
    *   'HIT' or 'MISS'.
+   * @param \Symfony\Component\HttpFoundation\Request|null $request
+   *   The incoming request for conditional request handling.
    *
-   * @return \Symfony\Component\HttpFoundation\JsonResponse
-   *   The JSON response.
+   * @return \Symfony\Component\HttpFoundation\JsonResponse|\Symfony\Component\HttpFoundation\Response
+   *   The JSON response, or a 304 Response.
    */
-  protected function jsonResponse(array $data, string $cache_state = 'MISS'): JsonResponse {
+  protected function jsonResponse(array $data, string $cache_state = 'MISS', ?Request $request = NULL): JsonResponse|Response {
     $response = new JsonResponse($data, 200, [
       'X-OpenFeeder' => '1.0',
       'X-OpenFeeder-Cache' => $cache_state,
     ]);
     $response->setEncodingOptions(JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+
+    if ($request !== NULL) {
+      $json = $response->getContent();
+      $etag = '"' . substr(md5($json), 0, 16) . '"';
+      $last_modified = $this->getLastModifiedFromData($data);
+
+      // Conditional request: 304 Not Modified.
+      if ($request->headers->get('if-none-match') === $etag) {
+        return new Response('', 304);
+      }
+
+      $response->headers->set('Cache-Control', 'public, max-age=300, stale-while-revalidate=60');
+      $response->headers->set('ETag', $etag);
+      $response->headers->set('Last-Modified', $last_modified);
+      $response->headers->set('Vary', 'Accept-Encoding');
+    }
 
     return $response;
   }

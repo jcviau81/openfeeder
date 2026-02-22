@@ -282,19 +282,80 @@ class OpenFeeder_Content_API {
 	}
 
 	/**
-	 * Send a JSON response with OpenFeeder headers.
+	 * Compute the RFC 7231 Last-Modified date from response data.
+	 *
+	 * Uses the most recently published item for index responses, or the
+	 * item's own published date for single-post responses.
+	 *
+	 * @param array $data Response data array.
+	 * @return string RFC 7231 formatted date string.
+	 */
+	private function get_last_modified_from_data( array $data ): string {
+		$timestamps = array();
+
+		// Single post: use its published/updated date.
+		if ( isset( $data['published'] ) ) {
+			$t = strtotime( $data['published'] );
+			if ( $t ) {
+				$timestamps[] = $t;
+			}
+		}
+		if ( isset( $data['updated'] ) ) {
+			$t = strtotime( $data['updated'] );
+			if ( $t ) {
+				$timestamps[] = $t;
+			}
+		}
+
+		// Index: use the most recent item's published date.
+		if ( isset( $data['items'] ) && is_array( $data['items'] ) ) {
+			foreach ( $data['items'] as $item ) {
+				if ( isset( $item['published'] ) ) {
+					$t = strtotime( $item['published'] );
+					if ( $t ) {
+						$timestamps[] = $t;
+					}
+				}
+			}
+		}
+
+		$max_ts = ! empty( $timestamps ) ? max( $timestamps ) : time();
+		return gmdate( 'D, d M Y H:i:s T', $max_ts );
+	}
+
+	/**
+	 * Send a JSON response with OpenFeeder headers and HTTP caching support.
+	 *
+	 * Computes an ETag from the response body and checks If-None-Match to
+	 * support 304 Not Modified responses for CDN and proxy caches.
 	 *
 	 * @param array  $data        Response data.
 	 * @param string $cache_state 'HIT' or 'MISS'.
 	 */
 	private function send_json( $data, $cache_state = 'MISS' ) {
+		$json = wp_json_encode( $data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
+		$etag = '"' . substr( md5( $json ), 0, 16 ) . '"';
+		$last_modified = $this->get_last_modified_from_data( $data );
+
+		// Conditional request: 304 Not Modified.
+		$if_none_match = isset( $_SERVER['HTTP_IF_NONE_MATCH'] )
+			? trim( $_SERVER['HTTP_IF_NONE_MATCH'] ) : '';
+		if ( $if_none_match === $etag ) {
+			status_header( 304 );
+			exit;
+		}
+
 		header( 'Content-Type: application/json; charset=utf-8' );
 		header( 'X-OpenFeeder: 1.0' );
 		header( 'Access-Control-Allow-Origin: *' );
 		header( 'X-OpenFeeder-Cache: ' . $cache_state );
+		header( 'Cache-Control: public, max-age=300, stale-while-revalidate=60' );
+		header( 'ETag: ' . $etag );
+		header( 'Last-Modified: ' . $last_modified );
+		header( 'Vary: Accept-Encoding' );
 		$this->add_rate_limit_headers();
 
-		echo wp_json_encode( $data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
+		echo $json; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 		exit;
 	}
 

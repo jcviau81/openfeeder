@@ -6,6 +6,7 @@
  *   GET /openfeeder                   → paginated index / single page
  */
 
+import { createHash } from "crypto";
 import type { Connect } from "vite";
 import type { IncomingMessage, ServerResponse } from "http";
 import { chunkContent, summarise } from "./chunker";
@@ -44,17 +45,67 @@ function getRateLimitHeaders(): Record<string, string> {
   };
 }
 
-function sendJson(res: ServerResponse, data: unknown, status = 200): void {
+/** Compute a quoted MD5 ETag from a JSON string. */
+function makeEtag(body: string): string {
+  return '"' + createHash("md5").update(body).digest("hex").slice(0, 16) + '"';
+}
+
+/** Return RFC 7231 date of the most recently published item. */
+function getLastModified(items: Array<{ published?: string }>): string {
+  const dates = items
+    .map((i) => new Date(i.published ?? 0))
+    .filter((d) => !isNaN(d.getTime()));
+  return dates.length
+    ? new Date(Math.max(...dates.map((d) => d.getTime()))).toUTCString()
+    : new Date().toUTCString();
+}
+
+/**
+ * Send a JSON response, optionally with HTTP caching headers.
+ * When req is provided, computes an ETag and returns 304 if the client's
+ * If-None-Match matches.
+ *
+ * @returns true if a 304 was sent (caller should return), false otherwise.
+ */
+function sendJson(
+  req: IncomingMessage,
+  res: ServerResponse,
+  data: unknown,
+  status = 200,
+  cacheHeaders?: { lastMod: string }
+): boolean {
   const body = JSON.stringify(data, null, 2);
   const rlHeaders = getRateLimitHeaders();
-  res.writeHead(status, {
-    "Content-Type": "application/json",
-    "X-OpenFeeder": "1.0",
-    "Access-Control-Allow-Origin": "*",
-    "Content-Length": Buffer.byteLength(body),
-    ...rlHeaders,
-  });
+
+  if (cacheHeaders) {
+    const etag = makeEtag(body);
+    if (req.headers["if-none-match"] === etag) {
+      res.statusCode = 304;
+      res.end();
+      return true;
+    }
+    res.writeHead(status, {
+      "Content-Type": "application/json",
+      "X-OpenFeeder": "1.0",
+      "Access-Control-Allow-Origin": "*",
+      "Content-Length": Buffer.byteLength(body),
+      "Cache-Control": "public, max-age=300, stale-while-revalidate=60",
+      "ETag": etag,
+      "Last-Modified": cacheHeaders.lastMod,
+      "Vary": "Accept-Encoding",
+      ...rlHeaders,
+    });
+  } else {
+    res.writeHead(status, {
+      "Content-Type": "application/json",
+      "X-OpenFeeder": "1.0",
+      "Access-Control-Allow-Origin": "*",
+      "Content-Length": Buffer.byteLength(body),
+      ...rlHeaders,
+    });
+  }
   res.end(body);
+  return false;
 }
 
 function parseQuery(url: string): Record<string, string> {
@@ -97,7 +148,8 @@ export function createMiddleware(
         capabilities: ["search"],
         contact: null,
       };
-      sendJson(res, body);
+      const lastMod = new Date(new Date().toISOString().slice(0, 10) + "T00:00:00Z").toUTCString();
+      sendJson(req, res, body, 200, { lastMod });
       return;
     }
 
@@ -108,29 +160,20 @@ export function createMiddleware(
 
       // Single page mode
       if (q.url !== undefined) {
-        // Sanitize ?q=: limit to 200 chars, strip HTML
         const normalized = sanitizeUrlParam(q.url);
         if (!normalized) {
-          sendJson(
-            res,
-            {
-              schema: "openfeeder/1.0",
-              error: { code: "INVALID_URL", message: "The ?url= parameter must be a valid relative path." },
-            },
-            400
-          );
+          sendJson(req, res, {
+            schema: "openfeeder/1.0",
+            error: { code: "INVALID_URL", message: "The ?url= parameter must be a valid relative path." },
+          }, 400);
           return;
         }
         const item = content.find((c) => c.url === normalized);
         if (!item) {
-          sendJson(
-            res,
-            {
-              schema: "openfeeder/1.0",
-              error: { code: "NOT_FOUND", message: "Item not found." },
-            },
-            404
-          );
+          sendJson(req, res, {
+            schema: "openfeeder/1.0",
+            error: { code: "NOT_FOUND", message: "Item not found." },
+          }, 404);
           return;
         }
 
@@ -150,7 +193,7 @@ export function createMiddleware(
             cache_age_seconds: null,
           },
         };
-        sendJson(res, body);
+        sendJson(req, res, body, 200, { lastMod: getLastModified([item]) });
         return;
       }
 
@@ -189,7 +232,7 @@ export function createMiddleware(
           summary: summarise(item.content),
         })),
       };
-      sendJson(res, body);
+      sendJson(req, res, body, 200, { lastMod: getLastModified(pageItems) });
       return;
     }
 

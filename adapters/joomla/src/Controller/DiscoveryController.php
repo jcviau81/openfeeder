@@ -55,11 +55,28 @@ class DiscoveryController
             return $v !== null;
         });
 
+        $json         = json_encode($discovery, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        $etag         = '"' . substr(md5($json), 0, 16) . '"';
+        $lastModified = gmdate('D, d M Y 00:00:00 T'); // Today at midnight UTC
+
+        // Conditional request: 304 Not Modified.
+        $ifNoneMatch = isset($_SERVER['HTTP_IF_NONE_MATCH'])
+            ? trim($_SERVER['HTTP_IF_NONE_MATCH']) : '';
+        if ($ifNoneMatch === $etag) {
+            http_response_code(304);
+            $this->app->close();
+            return;
+        }
+
         $this->app->setHeader('Content-Type', 'application/json; charset=utf-8');
         $this->app->setHeader('X-OpenFeeder', '1.0');
+        $this->app->setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=60');
+        $this->app->setHeader('ETag', $etag);
+        $this->app->setHeader('Last-Modified', $lastModified);
+        $this->app->setHeader('Vary', 'Accept-Encoding');
         $this->app->sendHeaders();
 
-        echo json_encode($discovery, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        echo $json;
 
         $this->app->close();
     }

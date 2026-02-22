@@ -9,6 +9,7 @@
 
 'use strict';
 
+const crypto = require('crypto');
 const { chunkContent, summarise } = require('../chunker');
 
 const DEFAULT_LIMIT = 10;
@@ -30,6 +31,28 @@ function getRateLimitHeaders() {
     'X-RateLimit-Remaining': '60',
     'X-RateLimit-Reset': String(Math.floor(Date.now() / 1000) + 60),
   };
+}
+
+/**
+ * Compute a quoted MD5 ETag from an arbitrary data object.
+ * @param {unknown} data
+ * @returns {string}
+ */
+function makeEtag(data) {
+  return '"' + crypto.createHash('md5').update(JSON.stringify(data)).digest('hex').slice(0, 16) + '"';
+}
+
+/**
+ * Return the RFC 7231 date string of the most recently published item.
+ * Falls back to the current time when no dates are found.
+ * @param {Array<{published?: string}>} items
+ * @returns {string}
+ */
+function getLastModified(items) {
+  const dates = items
+    .map((i) => new Date(i.published || 0))
+    .filter((d) => !isNaN(d.getTime()));
+  return dates.length ? new Date(Math.max(...dates)).toUTCString() : new Date().toUTCString();
 }
 
 /**
@@ -79,8 +102,6 @@ async function handleContent(req, res, config) {
     // Sanitize ?q=: limit to 200 chars, strip HTML
     const query = (req.query.q || '').slice(0, 200).replace(/<[^>]*>/g, '').trim();
 
-    const allHeaders = { ...HEADERS, ...getRateLimitHeaders() };
-
     // ── Single page mode ──────────────────────────────────────────────────
     if (urlParam) {
       const normalizedUrl = sanitizeUrlParam(String(urlParam));
@@ -119,7 +140,21 @@ async function handleContent(req, res, config) {
         },
       };
 
-      return res.set(allHeaders).status(200).json(body);
+      const etag = makeEtag(body);
+      const lastMod = getLastModified([item]);
+
+      if (req.headers['if-none-match'] === etag) {
+        return res.status(304).end();
+      }
+
+      return res.set({
+        ...HEADERS,
+        ...getRateLimitHeaders(),
+        'Cache-Control': 'public, max-age=300, stale-while-revalidate=60',
+        'ETag': etag,
+        'Last-Modified': lastMod,
+        'Vary': 'Accept-Encoding',
+      }).status(200).json(body);
     }
 
     // ── Index mode ────────────────────────────────────────────────────────
@@ -162,7 +197,21 @@ async function handleContent(req, res, config) {
       items,
     };
 
-    return res.set(allHeaders).status(200).json(body);
+    const etag = makeEtag(body);
+    const lastMod = getLastModified(filteredItems);
+
+    if (req.headers['if-none-match'] === etag) {
+      return res.status(304).end();
+    }
+
+    return res.set({
+      ...HEADERS,
+      ...getRateLimitHeaders(),
+      'Cache-Control': 'public, max-age=300, stale-while-revalidate=60',
+      'ETag': etag,
+      'Last-Modified': lastMod,
+      'Vary': 'Accept-Encoding',
+    }).status(200).json(body);
 
   } catch (err) {
     console.error('[openfeeder] Unexpected error:', err);

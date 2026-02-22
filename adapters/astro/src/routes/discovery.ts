@@ -9,6 +9,6 @@ import type { APIRoute } from "astro";
 import { handleDiscovery } from "../handlers/discovery.js";
 import { getConfig } from "../store.js";
 
-export const GET: APIRoute = () => {
-  return handleDiscovery(getConfig());
+export const GET: APIRoute = ({ request }) => {
+  return handleDiscovery(request, getConfig());
 };

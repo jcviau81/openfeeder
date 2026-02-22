@@ -4,6 +4,8 @@ namespace Drupal\openfeeder\Controller;
 
 use Drupal\Core\Controller\ControllerBase;
 use Symfony\Component\HttpFoundation\JsonResponse;
+use Symfony\Component\HttpFoundation\Request;
+use Symfony\Component\HttpFoundation\Response;
 
 /**
  * Serves the /.well-known/openfeeder.json discovery document.
@@ -11,12 +13,15 @@ use Symfony\Component\HttpFoundation\JsonResponse;
 class DiscoveryController extends ControllerBase {
 
   /**
-   * Serve the discovery JSON response.
+   * Serve the discovery JSON response with HTTP caching headers.
    *
-   * @return \Symfony\Component\HttpFoundation\JsonResponse
-   *   The discovery document.
+   * @param \Symfony\Component\HttpFoundation\Request $request
+   *   The current request (injected by Drupal for conditional request support).
+   *
+   * @return \Symfony\Component\HttpFoundation\JsonResponse|\Symfony\Component\HttpFoundation\Response
+   *   The discovery document, or a 304 response.
    */
-  public function serve(): JsonResponse {
+  public function serve(Request $request): JsonResponse|Response {
     $config = $this->config('openfeeder.settings');
     $site_config = $this->config('system.site');
 
@@ -48,6 +53,20 @@ class DiscoveryController extends ControllerBase {
       'X-OpenFeeder' => '1.0',
     ]);
     $response->setEncodingOptions(JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+
+    $json = $response->getContent();
+    $etag = '"' . substr(md5($json), 0, 16) . '"';
+    $last_modified = gmdate('D, d M Y 00:00:00 T'); // Today at midnight UTC
+
+    // Conditional request: 304 Not Modified.
+    if ($request->headers->get('if-none-match') === $etag) {
+      return new Response('', 304);
+    }
+
+    $response->headers->set('Cache-Control', 'public, max-age=300, stale-while-revalidate=60');
+    $response->headers->set('ETag', $etag);
+    $response->headers->set('Last-Modified', $last_modified);
+    $response->headers->set('Vary', 'Accept-Encoding');
 
     return $response;
   }

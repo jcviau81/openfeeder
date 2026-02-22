@@ -366,10 +366,65 @@ class ContentController
         return (new \DateTime($datetime, new \DateTimeZone('UTC')))->format('c');
     }
 
+    /**
+     * Compute RFC 7231 Last-Modified from response data.
+     *
+     * @param array $data Response data array.
+     * @return string RFC 7231 formatted date.
+     */
+    private function getLastModifiedFromData(array $data): string
+    {
+        $timestamps = [];
+
+        if (isset($data['published'])) {
+            $t = strtotime($data['published']);
+            if ($t) {
+                $timestamps[] = $t;
+            }
+        }
+        if (isset($data['updated'])) {
+            $t = strtotime($data['updated']);
+            if ($t) {
+                $timestamps[] = $t;
+            }
+        }
+        if (isset($data['items']) && is_array($data['items'])) {
+            foreach ($data['items'] as $item) {
+                if (isset($item['published'])) {
+                    $t = strtotime($item['published']);
+                    if ($t) {
+                        $timestamps[] = $t;
+                    }
+                }
+            }
+        }
+
+        $maxTs = !empty($timestamps) ? max($timestamps) : time();
+        return gmdate('D, d M Y H:i:s T', $maxTs);
+    }
+
     private function respond(array $data): void
     {
+        $json         = json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        $etag         = '"' . substr(md5($json), 0, 16) . '"';
+        $lastModified = $this->getLastModifiedFromData($data);
+
+        // Conditional request: 304 Not Modified.
+        $ifNoneMatch = isset($_SERVER['HTTP_IF_NONE_MATCH'])
+            ? trim($_SERVER['HTTP_IF_NONE_MATCH']) : '';
+        if ($ifNoneMatch === $etag) {
+            http_response_code(304);
+            $this->app->close();
+            return;
+        }
+
+        $this->app->setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=60');
+        $this->app->setHeader('ETag', $etag);
+        $this->app->setHeader('Last-Modified', $lastModified);
+        $this->app->setHeader('Vary', 'Accept-Encoding');
+
         $this->app->sendHeaders();
-        echo json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
+        echo $json;
         $this->app->close();
     }
 

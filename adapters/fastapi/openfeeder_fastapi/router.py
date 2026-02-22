@@ -8,13 +8,15 @@ Creates a FastAPI APIRouter that serves the OpenFeeder protocol endpoints:
 
 from __future__ import annotations
 
+import hashlib
 import logging
 import time
+from datetime import datetime, timezone
 from typing import Callable, Optional
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Query, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 
 from .chunker import chunk_content, summarise
 
@@ -38,6 +40,33 @@ def _get_headers() -> dict:
         "X-RateLimit-Remaining": "60",
         "X-RateLimit-Reset": reset,
     }
+
+
+def make_etag(data: dict) -> str:
+    """Compute a quoted MD5 ETag from a dict (serialised as JSON-like str)."""
+    import json
+    return '"' + hashlib.md5(json.dumps(data, separators=(',', ':')).encode()).hexdigest()[:16] + '"'
+
+
+def get_last_modified(items: list[dict]) -> str:
+    """Return RFC 7231 date string of the most recently published item."""
+    best: datetime | None = None
+    for item in items:
+        pub = item.get("published") or item.get("updated")
+        if not pub:
+            continue
+        try:
+            # Handle ISO 8601 with or without timezone
+            dt = datetime.fromisoformat(pub.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            if best is None or dt > best:
+                best = dt
+        except (ValueError, AttributeError):
+            pass
+    if best is None:
+        best = datetime.now(timezone.utc)
+    return best.strftime("%a, %d %b %Y %H:%M:%S GMT")
 
 
 def sanitize_url_param(raw: str) -> str | None:
@@ -104,7 +133,7 @@ def openfeeder_router(
     # ------------------------------------------------------------------
 
     @router.get("/.well-known/openfeeder.json")
-    async def discovery() -> JSONResponse:
+    async def discovery(request: Request) -> Response:
         body = {
             "version": "1.0",
             "site": {
@@ -120,7 +149,22 @@ def openfeeder_router(
             "capabilities": ["search"],
             "contact": None,
         }
-        return JSONResponse(content=body, headers=_get_headers())
+
+        etag = make_etag(body)
+        # Discovery is static per deployment; Last-Modified = today at midnight UTC
+        today = datetime.now(timezone.utc).strftime("%a, %d %b %Y 00:00:00 GMT")
+
+        if request.headers.get("if-none-match") == etag:
+            return Response(status_code=304)
+
+        headers = {
+            **_get_headers(),
+            "Cache-Control": "public, max-age=300, stale-while-revalidate=60",
+            "ETag": etag,
+            "Last-Modified": today,
+            "Vary": "Accept-Encoding",
+        }
+        return JSONResponse(content=body, headers=headers)
 
     # ------------------------------------------------------------------
     # Content endpoint
@@ -128,11 +172,12 @@ def openfeeder_router(
 
     @router.get("/openfeeder")
     async def content(
+        request: Request,
         url: Optional[str] = Query(default=None),
         page: Optional[str] = Query(default=None),
         limit: Optional[str] = Query(default=None),
         q: Optional[str] = Query(default=None),
-    ) -> JSONResponse:
+    ) -> Response:
 
         # Sanitize ?q=: limit to 200 chars, strip HTML is implicit (not rendered)
         query = (q or '')[:200]
@@ -176,7 +221,21 @@ def openfeeder_router(
                     "cache_age_seconds": None,
                 },
             }
-            return JSONResponse(content=body, headers=_get_headers())
+
+            etag = make_etag(body)
+            last_mod = get_last_modified([item])
+
+            if request.headers.get("if-none-match") == etag:
+                return Response(status_code=304)
+
+            headers = {
+                **_get_headers(),
+                "Cache-Control": "public, max-age=300, stale-while-revalidate=60",
+                "ETag": etag,
+                "Last-Modified": last_mod,
+                "Vary": "Accept-Encoding",
+            }
+            return JSONResponse(content=body, headers=headers)
 
         # ── Index mode ───────────────────────────────────────────────
         try:
@@ -225,6 +284,20 @@ def openfeeder_router(
             "total_pages": total_pages,
             "items": items_out,
         }
-        return JSONResponse(content=body, headers=_get_headers())
+
+        etag = make_etag(body)
+        last_mod = get_last_modified(raw_items)
+
+        if request.headers.get("if-none-match") == etag:
+            return Response(status_code=304)
+
+        headers = {
+            **_get_headers(),
+            "Cache-Control": "public, max-age=300, stale-while-revalidate=60",
+            "ETag": etag,
+            "Last-Modified": last_mod,
+            "Vary": "Accept-Encoding",
+        }
+        return JSONResponse(content=body, headers=headers)
 
     return router

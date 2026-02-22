@@ -7,6 +7,7 @@
  *   ?q=search+term          → search (filtered index)
  */
 
+import { createHash } from "crypto";
 import { chunkContent, summarise } from "../chunker.js";
 import type {
   OpenFeederConfig,
@@ -34,6 +35,21 @@ function getHeaders(): Record<string, string> {
   };
 }
 
+/** Compute a quoted MD5 ETag from arbitrary data. */
+function makeEtag(data: unknown): string {
+  return '"' + createHash("md5").update(JSON.stringify(data)).digest("hex").slice(0, 16) + '"';
+}
+
+/** Return RFC 7231 date of the most recently published item. */
+function getLastModified(items: Array<{ published?: string }>): string {
+  const dates = items
+    .map((i) => new Date(i.published ?? 0))
+    .filter((d) => !isNaN(d.getTime()));
+  return dates.length
+    ? new Date(Math.max(...dates.map((d) => d.getTime()))).toUTCString()
+    : new Date().toUTCString();
+}
+
 /**
  * Sanitize the ?url= parameter: extract pathname only, reject path traversal.
  * Absolute URLs are stripped to pathname. Returns null on invalid input.
@@ -50,12 +66,12 @@ function sanitizeUrlParam(raw: string | null): string | null {
   }
 }
 
-function jsonResponse(body: unknown, status = 200): Response {
-  return new Response(JSON.stringify(body), { status, headers: getHeaders() });
+function jsonResponse(body: unknown, headers: Record<string, string>, status = 200): Response {
+  return new Response(JSON.stringify(body), { status, headers });
 }
 
 function errorResponse(code: string, message: string, status: number): Response {
-  return jsonResponse({ schema: "openfeeder/1.0", error: { code, message } }, status);
+  return jsonResponse({ schema: "openfeeder/1.0", error: { code, message } }, getHeaders(), status);
 }
 
 export async function handleContent(
@@ -105,7 +121,20 @@ export async function handleContent(
       },
     };
 
-    return jsonResponse(body);
+    const etag = makeEtag(body);
+    const lastMod = getLastModified([item]);
+
+    if (request.headers.get("if-none-match") === etag) {
+      return new Response(null, { status: 304 });
+    }
+
+    return jsonResponse(body, {
+      ...getHeaders(),
+      "Cache-Control": "public, max-age=300, stale-while-revalidate=60",
+      "ETag": etag,
+      "Last-Modified": lastMod,
+      "Vary": "Accept-Encoding",
+    });
   }
 
   // ── Index mode ────────────────────────────────────────────────────────────
@@ -142,5 +171,18 @@ export async function handleContent(
     items,
   };
 
-  return jsonResponse(body);
+  const etag = makeEtag(body);
+  const lastMod = getLastModified(filteredItems);
+
+  if (request.headers.get("if-none-match") === etag) {
+    return new Response(null, { status: 304 });
+  }
+
+  return jsonResponse(body, {
+    ...getHeaders(),
+    "Cache-Control": "public, max-age=300, stale-while-revalidate=60",
+    "ETag": etag,
+    "Last-Modified": lastMod,
+    "Vary": "Accept-Encoding",
+  });
 }

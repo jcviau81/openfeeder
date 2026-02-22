@@ -86,6 +86,7 @@ class OpenFeeder_WC_Products_API {
 			'item'     => $item,
 		);
 
+		$this->apply_cache_headers( $data );
 		echo wp_json_encode( $data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
 	}
 
@@ -188,6 +189,7 @@ class OpenFeeder_WC_Products_API {
 			'items'       => $items,
 		);
 
+		$this->apply_cache_headers( $data );
 		echo wp_json_encode( $data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
 	}
 
@@ -344,7 +346,9 @@ class OpenFeeder_WC_Products_API {
 	// ── Helpers ───────────────────────────────────────────────────────────────
 
 	/**
-	 * Send standard OpenFeeder response headers.
+	 * Send standard OpenFeeder base response headers.
+	 *
+	 * Cache-Control and ETag are added later once the response body is known.
 	 */
 	private function send_headers() {
 		header( 'Content-Type: application/json; charset=utf-8' );
@@ -353,7 +357,62 @@ class OpenFeeder_WC_Products_API {
 		header( 'Access-Control-Allow-Origin: *' );
 		header( 'Access-Control-Allow-Methods: GET, OPTIONS' );
 		header( 'Access-Control-Allow-Headers: Content-Type' );
-		header( 'Cache-Control: no-store' );
+	}
+
+	/**
+	 * Apply HTTP caching headers and handle conditional 304 requests.
+	 *
+	 * Must be called BEFORE any output is generated (before echo).
+	 *
+	 * @param array $data The full response data array.
+	 */
+	private function apply_cache_headers( array $data ): void {
+		$json          = wp_json_encode( $data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE );
+		$etag          = '"' . substr( md5( $json ), 0, 16 ) . '"';
+		$last_modified = $this->get_last_modified_from_data( $data );
+
+		// Conditional request: 304 Not Modified.
+		$if_none_match = isset( $_SERVER['HTTP_IF_NONE_MATCH'] )
+			? trim( $_SERVER['HTTP_IF_NONE_MATCH'] ) : '';
+		if ( $if_none_match === $etag ) {
+			status_header( 304 );
+			exit;
+		}
+
+		header( 'Cache-Control: public, max-age=300, stale-while-revalidate=60' );
+		header( 'ETag: ' . $etag );
+		header( 'Last-Modified: ' . $last_modified );
+		header( 'Vary: Accept-Encoding' );
+	}
+
+	/**
+	 * Compute RFC 7231 Last-Modified date from response data.
+	 *
+	 * @param array $data Response data array.
+	 * @return string RFC 7231 formatted date.
+	 */
+	private function get_last_modified_from_data( array $data ): string {
+		$timestamps = array();
+
+		if ( isset( $data['item']['published'] ) ) {
+			$t = strtotime( $data['item']['published'] );
+			if ( $t ) {
+				$timestamps[] = $t;
+			}
+		}
+		if ( isset( $data['items'] ) && is_array( $data['items'] ) ) {
+			foreach ( $data['items'] as $item ) {
+				if ( isset( $item['published'] ) ) {
+					$t = strtotime( $item['published'] );
+					if ( $t ) {
+						$timestamps[] = $t;
+					}
+				}
+			}
+		}
+
+		$max_ts = ! empty( $timestamps ) ? max( $timestamps ) : time();
+		return gmdate( 'D, d M Y H:i:s T', $max_ts );
 	}
 
 	/**

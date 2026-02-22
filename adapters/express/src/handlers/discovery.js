@@ -6,11 +6,22 @@
 
 'use strict';
 
+const crypto = require('crypto');
+
 const HEADERS = {
   'Content-Type': 'application/json',
   'X-OpenFeeder': '1.0',
   'Access-Control-Allow-Origin': '*',
 };
+
+/**
+ * Compute a quoted MD5 ETag from an arbitrary data object.
+ * @param {unknown} data
+ * @returns {string}
+ */
+function makeEtag(data) {
+  return '"' + crypto.createHash('md5').update(JSON.stringify(data)).digest('hex').slice(0, 16) + '"';
+}
 
 /**
  * @param {import('express').Request} req
@@ -34,7 +45,21 @@ function handleDiscovery(req, res, config) {
     contact: null,
   };
 
-  res.set(HEADERS).status(200).json(body);
+  const etag = makeEtag(body);
+  // Discovery document is static per deployment; use today (UTC) as Last-Modified
+  const lastMod = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00Z').toUTCString();
+
+  if (req.headers['if-none-match'] === etag) {
+    return res.status(304).end();
+  }
+
+  res.set({
+    ...HEADERS,
+    'Cache-Control': 'public, max-age=300, stale-while-revalidate=60',
+    'ETag': etag,
+    'Last-Modified': lastMod,
+    'Vary': 'Accept-Encoding',
+  }).status(200).json(body);
 }
 
 module.exports = { handleDiscovery };

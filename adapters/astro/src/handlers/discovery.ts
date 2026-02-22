@@ -4,6 +4,7 @@
  * Responds with the /.well-known/openfeeder.json document.
  */
 
+import { createHash } from "crypto";
 import type { OpenFeederConfig, OpenFeederDiscovery } from "../types.js";
 
 const HEADERS = {
@@ -12,7 +13,12 @@ const HEADERS = {
   "Access-Control-Allow-Origin": "*",
 };
 
-export function handleDiscovery(config: OpenFeederConfig): Response {
+/** Compute a quoted MD5 ETag from arbitrary data. */
+function makeEtag(data: unknown): string {
+  return '"' + createHash("md5").update(JSON.stringify(data)).digest("hex").slice(0, 16) + '"';
+}
+
+export function handleDiscovery(request: Request, config: OpenFeederConfig): Response {
   const body: OpenFeederDiscovery = {
     version: "1.0",
     site: {
@@ -29,5 +35,21 @@ export function handleDiscovery(config: OpenFeederConfig): Response {
     contact: null,
   };
 
-  return new Response(JSON.stringify(body), { headers: HEADERS });
+  const etag = makeEtag(body);
+  // Discovery is static per deployment; use today (UTC) as Last-Modified
+  const lastMod = new Date(new Date().toISOString().slice(0, 10) + "T00:00:00Z").toUTCString();
+
+  if (request.headers.get("if-none-match") === etag) {
+    return new Response(null, { status: 304 });
+  }
+
+  return new Response(JSON.stringify(body), {
+    headers: {
+      ...HEADERS,
+      "Cache-Control": "public, max-age=300, stale-while-revalidate=60",
+      "ETag": etag,
+      "Last-Modified": lastMod,
+      "Vary": "Accept-Encoding",
+    },
+  });
 }
