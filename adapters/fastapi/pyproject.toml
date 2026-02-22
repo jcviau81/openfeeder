@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "openfeeder-fastapi"
+version = "1.0.0"
+description = "FastAPI adapter for the OpenFeeder protocol — LLM-optimized content delivery"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.9"
+keywords = ["openfeeder", "fastapi", "llm", "content", "api"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Framework :: FastAPI",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+
+# fastapi and pydantic are peer dependencies
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "fastapi>=0.100.0",
+    "pydantic>=2.0",
+    "uvicorn[standard]",
+    "httpx",
+    "pytest",
+    "pytest-asyncio",
+]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["openfeeder_fastapi*"]
