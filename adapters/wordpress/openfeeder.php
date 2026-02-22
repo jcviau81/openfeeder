@@ -22,6 +22,12 @@ require_once OPENFEEDER_PLUGIN_DIR . 'includes/class-cache.php';
 require_once OPENFEEDER_PLUGIN_DIR . 'includes/class-chunker.php';
 require_once OPENFEEDER_PLUGIN_DIR . 'includes/class-discovery.php';
 require_once OPENFEEDER_PLUGIN_DIR . 'includes/class-content-api.php';
+require_once OPENFEEDER_PLUGIN_DIR . 'includes/class-gateway.php';
+
+// Initialize LLM Gateway if enabled.
+if ( get_option( 'openfeeder_llm_gateway', false ) ) {
+	OpenFeeder_Gateway::init();
+}
 
 /**
  * Register rewrite rules for OpenFeeder endpoints.
@@ -168,6 +174,11 @@ function openfeeder_register_settings() {
 		'default'           => '',
 		'sanitize_callback' => 'sanitize_text_field',
 	) );
+	register_setting( 'openfeeder_settings', 'openfeeder_llm_gateway', array(
+		'type'              => 'boolean',
+		'default'           => false,
+		'sanitize_callback' => 'rest_sanitize_boolean',
+	) );
 	register_setting( 'openfeeder_settings', 'openfeeder_max_chunks', array(
 		'type'              => 'integer',
 		'default'           => 50,
@@ -226,6 +237,23 @@ function openfeeder_settings_page() {
 							min="1" max="50" class="small-text" />
 						<p class="description">
 							<?php esc_html_e( 'Maximum number of chunks returned in a single API response (1-50).', 'openfeeder' ); ?>
+						</p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row">
+						<label for="openfeeder_llm_gateway">
+							<?php esc_html_e( 'LLM Gateway', 'openfeeder' ); ?>
+						</label>
+					</th>
+					<td>
+						<input type="checkbox" id="openfeeder_llm_gateway" name="openfeeder_llm_gateway" value="1"
+							<?php checked( get_option( 'openfeeder_llm_gateway', false ) ); ?> />
+						<label for="openfeeder_llm_gateway">
+							<?php esc_html_e( 'Enable', 'openfeeder' ); ?>
+						</label>
+						<p class="description">
+							<?php esc_html_e( 'When enabled, AI crawlers (GPTBot, ClaudeBot, PerplexityBot…) visiting any page will receive a structured JSON response directing them to use OpenFeeder endpoints instead of scraping HTML.', 'openfeeder' ); ?>
 						</p>
 					</td>
 				</tr>

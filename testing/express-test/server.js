@@ -81,6 +81,7 @@ const app = express();
 app.use(openFeederMiddleware({
   siteName: 'OpenFeeder Express Test Blog',
   siteUrl: 'http://localhost:3002',
+  llmGateway: true,
   language: 'en',
   siteDescription: 'A test blog demonstrating the OpenFeeder Express.js adapter.',
 

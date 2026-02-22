@@ -19,6 +19,7 @@
 
 const { handleDiscovery } = require('./handlers/discovery');
 const { handleContent } = require('./handlers/content');
+const { createGatewayMiddleware } = require('./gateway');
 
 /**
  * @typedef {Object} OpenFeederConfig
@@ -54,6 +55,8 @@ function openFeederMiddleware(config) {
     throw new Error('[openfeeder] openFeederMiddleware requires getItems and getItem functions in config.');
   }
 
+  const gateway = config.llmGateway ? createGatewayMiddleware(config) : null;
+
   return function openfeeder(req, res, next) {
     const pathname = (req.path || '/').split('?')[0];
 
@@ -63,6 +66,11 @@ function openFeederMiddleware(config) {
 
     if (pathname === '/openfeeder') {
       return handleContent(req, res, config);
+    }
+
+    // LLM Gateway: intercept AI bots on non-OpenFeeder pages
+    if (gateway) {
+      return gateway(req, res, next);
     }
 
     return next();
