@@ -27,6 +27,15 @@ require_once OPENFEEDER_PLUGIN_DIR . 'includes/class-gateway.php';
 // Initialize LLM Gateway if enabled.
 if ( get_option( 'openfeeder_llm_gateway', false ) ) {
 	OpenFeeder_Gateway::init();
+
+	// Register REST route for dialogue respond (Mode 1 Round 2).
+	add_action( 'rest_api_init', function () {
+		register_rest_route( 'openfeeder/v1', '/gateway/respond', [
+			'methods'             => 'POST',
+			'callback'            => [ 'OpenFeeder_Gateway', 'handle_dialogue_respond' ],
+			'permission_callback' => '__return_true',
+		] );
+	} );
 }
 
 /**

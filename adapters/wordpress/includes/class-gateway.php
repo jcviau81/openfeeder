@@ -6,6 +6,11 @@
  * JSON response with targeted questions and pre-built query actions,
  * directing them to use OpenFeeder endpoints instead of scraping HTML.
  *
+ * Supports 3 interaction modes:
+ *   Mode 1 (Cold start) — dialogue with session
+ *   Mode 2 (Warm start) — direct response via X-OpenFeeder-* headers
+ *   Mode 3 (Bypass)     — legacy bots use endpoints directly
+ *
  * @package OpenFeeder
  */
 
@@ -23,10 +28,47 @@ class OpenFeeder_Gateway {
 
 	const STATIC_EXTS = [ 'js', 'css', 'png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico', 'woff', 'woff2', 'ttf', 'eot' ];
 
+	const SESSION_TTL = 300; // 5 minutes
+
 	public static function init() {
 		// Run late in template_redirect so WP query is fully resolved.
 		add_action( 'template_redirect', [ __CLASS__, 'maybe_intercept' ], 5 );
 	}
+
+	// ── Session store using WordPress transients ──────────────────────────────
+
+	/**
+	 * Create a gateway dialogue session.
+	 *
+	 * @param array $context Session context data.
+	 * @return string Session ID (16 hex chars prefixed with "gw_").
+	 */
+	public static function create_session( array $context ): string {
+		$id = 'gw_' . bin2hex( random_bytes( 8 ) );
+		set_transient( 'of_gw_' . $id, $context, self::SESSION_TTL );
+		return $id;
+	}
+
+	/**
+	 * Retrieve a session by ID.
+	 *
+	 * @param string $id Session ID.
+	 * @return array|false Session context or false if expired/not found.
+	 */
+	public static function get_session( string $id ) {
+		return get_transient( 'of_gw_' . $id );
+	}
+
+	/**
+	 * Delete a session after use.
+	 *
+	 * @param string $id Session ID.
+	 */
+	public static function delete_session( string $id ): void {
+		delete_transient( 'of_gw_' . $id );
+	}
+
+	// ── Bot detection ─────────────────────────────────────────────────────────
 
 	public static function maybe_intercept() {
 		if ( 'GET' !== $_SERVER['REQUEST_METHOD'] ) return;
@@ -260,38 +302,269 @@ class OpenFeeder_Gateway {
 		return $questions;
 	}
 
-	public static function send_gateway_response( string $path ) {
-		$base_url    = rtrim( home_url(), '/' );
-		$has_ecommerce = class_exists( 'WooCommerce' );
-		$ctx         = self::detect_context();
-		$questions   = self::build_questions( $ctx, $path, $base_url, $has_ecommerce );
+	// ── Tailored response builder ─────────────────────────────────────────────
 
-		$capabilities = [ 'content', 'search' ];
-		if ( $has_ecommerce ) $capabilities[] = 'products';
+	/**
+	 * Build a tailored response for Mode 2 (direct) or Mode 1 Round 2 (dialogue respond).
+	 *
+	 * @param array  $intent_data Intent, depth, format, query, language.
+	 * @param array  $context     Page context (page_requested, detected_type, detected_topic).
+	 * @param string $base_url    Site base URL.
+	 * @return array Response array.
+	 */
+	private static function build_tailored_response( array $intent_data, array $context, string $base_url ): array {
+		$intent = $intent_data['intent'] ?? 'answer-question';
+		$depth  = $intent_data['depth'] ?? 'standard';
+		$format = $intent_data['format'] ?? 'full-text';
+		$query  = $intent_data['query'] ?? '';
+		$page   = $context['page_requested'] ?? '/';
 
+		$endpoints = [];
+
+		if ( ! empty( $query ) ) {
+			$endpoints[] = [
+				'url'         => "{$base_url}/openfeeder?q=" . rawurlencode( $query ) . "&format={$format}",
+				'relevance'   => 'high',
+				'description' => 'Content filtered to match your specific question',
+			];
+		}
+
+		$type = $context['detected_type'] ?? 'page';
+		if ( in_array( $type, [ 'product', 'product_category', 'shop' ], true ) ) {
+			$endpoints[] = [
+				'url'         => "{$base_url}/openfeeder/products?url=" . rawurlencode( $page ),
+				'relevance'   => empty( $query ) ? 'high' : 'medium',
+				'description' => 'Product details for the requested page',
+			];
+		} else {
+			$endpoints[] = [
+				'url'         => "{$base_url}/openfeeder?url=" . rawurlencode( $page ),
+				'relevance'   => empty( $query ) ? 'high' : 'medium',
+				'description' => 'Full content of the requested page',
+			];
+		}
+
+		if ( empty( $query ) ) {
+			$endpoints[] = [
+				'url'         => "{$base_url}/openfeeder",
+				'relevance'   => 'low',
+				'description' => 'Browse all available content',
+			];
+		}
+
+		$query_hints = [];
+		if ( ! empty( $query ) ) {
+			$query_hints[] = 'GET /openfeeder?q=' . rawurlencode( $query );
+			$query_hints[] = "GET /openfeeder?q=" . rawurlencode( $query ) . "&format={$format}&depth={$depth}";
+		} else {
+			$query_hints[] = 'GET /openfeeder?url=' . rawurlencode( $page );
+		}
+
+		return [
+			'openfeeder'            => '1.0',
+			'tailored'              => true,
+			'intent'                => $intent,
+			'depth'                 => $depth,
+			'format'                => $format,
+			'recommended_endpoints' => $endpoints,
+			'query_hints'           => $query_hints,
+			'current_page'          => [
+				'openfeeder_url' => "{$base_url}/openfeeder?url=" . rawurlencode( $page ),
+				'title'          => $context['detected_topic'] ?? null,
+				'summary'        => ! empty( $type ) ? "{$type} page" : null,
+			],
+			'endpoints'             => [
+				'content'   => "{$base_url}/openfeeder",
+				'discovery' => "{$base_url}/.well-known/openfeeder.json",
+			],
+		];
+	}
+
+	// ── Extract intent from headers/params ────────────────────────────────────
+
+	/**
+	 * Extract intent data from X-OpenFeeder-* headers or _of_* query params.
+	 *
+	 * @return array|null Null if no intent indicators present.
+	 */
+	private static function extract_intent_data(): ?array {
+		$intent = $_SERVER['HTTP_X_OPENFEEDER_INTENT'] ?? $_GET['_of_intent'] ?? null;
+		if ( ! $intent ) {
+			return null;
+		}
+
+		return [
+			'intent'   => $intent,
+			'depth'    => $_SERVER['HTTP_X_OPENFEEDER_DEPTH'] ?? $_GET['_of_depth'] ?? 'standard',
+			'format'   => $_SERVER['HTTP_X_OPENFEEDER_FORMAT'] ?? $_GET['_of_format'] ?? 'full-text',
+			'query'    => $_SERVER['HTTP_X_OPENFEEDER_QUERY'] ?? $_GET['_of_query'] ?? '',
+			'language' => $_SERVER['HTTP_X_OPENFEEDER_LANGUAGE'] ?? $_GET['_of_language'] ?? 'en',
+		];
+	}
+
+	// ── Gateway response headers ──────────────────────────────────────────────
+
+	private static function send_gateway_headers(): void {
 		header( 'Content-Type: application/json; charset=utf-8' );
 		header( 'X-OpenFeeder: 1.0' );
 		header( 'X-OpenFeeder-Gateway: interactive' );
 		header( 'Access-Control-Allow-Origin: *' );
+	}
+
+	// ── Main gateway response (Mode 1 Round 1 + Mode 2) ──────────────────────
+
+	public static function send_gateway_response( string $path ) {
+		$base_url      = rtrim( home_url(), '/' );
+		$has_ecommerce = class_exists( 'WooCommerce' );
+		$ctx           = self::detect_context();
+
+		$context = [
+			'page_requested'  => $path,
+			'detected_type'   => $ctx['type'],
+			'detected_topic'  => $ctx['topic'],
+		];
+
+		// Mode 2 — Direct (Warm Start): X-OpenFeeder-* headers or _of_* params
+		$intent_data = self::extract_intent_data();
+		if ( $intent_data ) {
+			self::send_gateway_headers();
+			echo wp_json_encode(
+				self::build_tailored_response( $intent_data, $context, $base_url ),
+				JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES
+			);
+			exit;
+		}
+
+		// Mode 1 Round 1 — Cold Start: dialogue + session
+		$questions = self::build_questions( $ctx, $path, $base_url, $has_ecommerce );
+
+		$capabilities = [ 'content', 'search' ];
+		if ( $has_ecommerce ) $capabilities[] = 'products';
+
+		$session_context = [
+			'url'            => $path,
+			'detected_type'  => $ctx['type'],
+			'detected_topic' => $ctx['topic'],
+			'created_at'     => time(),
+		];
+		$session_id = self::create_session( $session_context );
+
+		self::send_gateway_headers();
 
 		echo wp_json_encode( [
 			'openfeeder' => '1.0',
 			'gateway'    => 'interactive',
 			'message'    => 'This site supports OpenFeeder — a structured content protocol for AI systems. Instead of scraping HTML, use the actions below to get exactly what you need.',
-			'context'    => [
-				'page_requested'  => $path,
-				'detected_type'   => $ctx['type'],
-				'detected_topic'  => $ctx['topic'],
-				'site_capabilities' => $capabilities,
+			'dialog'     => [
+				'active'     => true,
+				'session_id' => $session_id,
+				'expires_in' => self::SESSION_TTL,
+				'message'    => 'To give you the most relevant content, a few quick questions:',
+				'questions'  => [
+					[
+						'id'       => 'intent',
+						'question' => 'What is your primary goal?',
+						'type'     => 'choice',
+						'options'  => [ 'answer-question', 'broad-research', 'fact-check', 'summarize', 'find-sources' ],
+					],
+					[
+						'id'       => 'depth',
+						'question' => 'How much detail do you need?',
+						'type'     => 'choice',
+						'options'  => [ 'overview', 'standard', 'deep' ],
+					],
+					[
+						'id'       => 'format',
+						'question' => 'Preferred output format?',
+						'type'     => 'choice',
+						'options'  => [ 'full-text', 'key-facts', 'summary', 'qa' ],
+					],
+					[
+						'id'       => 'query',
+						'question' => 'What specifically are you looking for? (optional — leave blank to browse)',
+						'type'     => 'text',
+					],
+				],
+				'reply_to'   => 'POST /openfeeder/gateway/respond',
 			],
+			'context'    => array_merge( $context, [
+				'site_capabilities' => $capabilities,
+			] ),
 			'questions'  => $questions,
+			'endpoints'  => [
+				'content'   => "{$base_url}/openfeeder",
+				'discovery' => "{$base_url}/.well-known/openfeeder.json",
+			],
 			'next_steps' => [
-				'Choose the action above that matches your intent and make that GET request.',
+				'Answer the dialog questions via POST /openfeeder/gateway/respond for a tailored response.',
+				'Or choose an action from the questions above and make that GET request.',
 				"Or search directly: GET {$base_url}/openfeeder?q=describe+what+you+need",
 				"Start from the discovery doc: GET {$base_url}/.well-known/openfeeder.json",
 			],
 		], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
 
 		exit;
+	}
+
+	// ── Mode 1 Round 2 — Dialogue respond (WP REST API callback) ─────────────
+
+	/**
+	 * Handle POST /openfeeder/v1/gateway/respond
+	 *
+	 * @param WP_REST_Request $request
+	 * @return WP_REST_Response
+	 */
+	public static function handle_dialogue_respond( $request ) {
+		$body       = $request->get_json_params();
+		$session_id = $body['session_id'] ?? null;
+		$answers    = $body['answers'] ?? [];
+
+		if ( empty( $session_id ) || ! is_string( $session_id ) ) {
+			return new WP_REST_Response( [
+				'openfeeder' => '1.0',
+				'error'      => [
+					'code'    => 'INVALID_SESSION',
+					'message' => 'Missing or invalid session_id.',
+				],
+			], 400 );
+		}
+
+		$session_data = self::get_session( $session_id );
+		if ( false === $session_data ) {
+			return new WP_REST_Response( [
+				'openfeeder' => '1.0',
+				'error'      => [
+					'code'    => 'SESSION_EXPIRED',
+					'message' => 'Session not found or expired.',
+				],
+			], 400 );
+		}
+
+		$base_url = rtrim( home_url(), '/' );
+
+		$intent_data = [
+			'intent'   => $answers['intent'] ?? 'answer-question',
+			'depth'    => $answers['depth'] ?? 'standard',
+			'format'   => $answers['format'] ?? 'full-text',
+			'query'    => $answers['query'] ?? '',
+			'language' => $answers['language'] ?? 'en',
+		];
+
+		$context = [
+			'page_requested' => $session_data['url'] ?? '/',
+			'detected_type'  => $session_data['detected_type'] ?? 'page',
+			'detected_topic' => $session_data['detected_topic'] ?? null,
+		];
+
+		self::delete_session( $session_id );
+
+		$response = new WP_REST_Response(
+			self::build_tailored_response( $intent_data, $context, $base_url ),
+			200
+		);
+		$response->header( 'X-OpenFeeder', '1.0' );
+		$response->header( 'X-OpenFeeder-Gateway', 'interactive' );
+
+		return $response;
 	}
 }

@@ -1,5 +1,7 @@
 "use strict";
 
+const { GatewaySessionStore } = require("./gateway-session");
+
 // Known LLM crawler user-agent patterns
 const LLM_AGENTS = [
   "GPTBot", "ChatGPT-User", "ClaudeBot", "anthropic-ai",
@@ -206,12 +208,115 @@ function buildQuestions(ctx, path, baseUrl, hasEcommerce) {
 }
 
 /**
- * Create the interactive LLM Gateway middleware.
+ * Extract intent data from X-OpenFeeder-* headers or _of_* query params.
+ * Returns null if no intent indicators are present.
  */
-function createGatewayMiddleware(config) {
-  const hasEcommerce = Boolean(config.hasEcommerce);
+function extractIntentData(req) {
+  const intent = req.headers["x-openfeeder-intent"] || req.query._of_intent;
+  if (!intent) return null;
 
-  return function openfeederGateway(req, res, next) {
+  return {
+    intent,
+    depth: req.headers["x-openfeeder-depth"] || req.query._of_depth || "standard",
+    format: req.headers["x-openfeeder-format"] || req.query._of_format || "full-text",
+    query: req.headers["x-openfeeder-query"] || req.query._of_query || "",
+    language: req.headers["x-openfeeder-language"] || req.query._of_language || "en",
+  };
+}
+
+/**
+ * Build a tailored response for Mode 2 (direct) or Mode 1 Round 2 (dialogue respond).
+ */
+function buildTailoredResponse(intentData, context, baseUrl) {
+  const { intent, depth, format, query } = intentData;
+  const endpoints = [];
+
+  // Build recommended endpoints based on intent + context
+  if (query) {
+    endpoints.push({
+      url: `${baseUrl}/openfeeder?q=${encodeURIComponent(query)}&format=${format}`,
+      relevance: "high",
+      description: "Content filtered to match your specific question",
+    });
+  }
+
+  if (context.detected_type === "product" || context.detected_type === "category") {
+    endpoints.push({
+      url: `${baseUrl}/openfeeder/products?url=${encodeURIComponent(context.page_requested)}`,
+      relevance: query ? "medium" : "high",
+      description: "Product details for the requested page",
+    });
+  } else {
+    endpoints.push({
+      url: `${baseUrl}/openfeeder?url=${encodeURIComponent(context.page_requested)}`,
+      relevance: query ? "medium" : "high",
+      description: "Full content of the requested page",
+    });
+  }
+
+  if (!query) {
+    endpoints.push({
+      url: `${baseUrl}/openfeeder`,
+      relevance: "low",
+      description: "Browse all available content",
+    });
+  }
+
+  const queryHints = [];
+  if (query) {
+    queryHints.push(`GET /openfeeder?q=${encodeURIComponent(query)}`);
+    queryHints.push(`GET /openfeeder?q=${encodeURIComponent(query)}&format=${format}&depth=${depth}`);
+  } else {
+    queryHints.push(`GET /openfeeder?url=${encodeURIComponent(context.page_requested)}`);
+  }
+
+  return {
+    openfeeder: "1.0",
+    tailored: true,
+    intent,
+    depth,
+    format,
+    recommended_endpoints: endpoints,
+    query_hints: queryHints,
+    current_page: {
+      openfeeder_url: `${baseUrl}/openfeeder?url=${encodeURIComponent(context.page_requested)}`,
+      title: context.detected_topic || null,
+      summary: context.detected_type ? `${context.detected_type} page` : null,
+    },
+    endpoints: {
+      content: `${baseUrl}/openfeeder`,
+      discovery: `${baseUrl}/.well-known/openfeeder.json`,
+    },
+  };
+}
+
+/**
+ * Standard gateway response headers.
+ */
+function setGatewayHeaders(res) {
+  res.set({
+    "Content-Type": "application/json; charset=utf-8",
+    "X-OpenFeeder": "1.0",
+    "X-OpenFeeder-Gateway": "interactive",
+    "Access-Control-Allow-Origin": "*",
+  });
+}
+
+/**
+ * GatewayHandler encapsulates the 3-mode gateway logic with session support.
+ */
+class GatewayHandler {
+  constructor(config) {
+    this.config = config;
+    this.hasEcommerce = Boolean(config.hasEcommerce);
+    this.baseUrl = config.siteUrl.replace(/\/$/, "");
+    this.sessions = new GatewaySessionStore();
+  }
+
+  /**
+   * Main gateway middleware — handles Mode 1 Round 1 (cold start) and Mode 2 (direct).
+   */
+  handleRequest(req, res, next) {
     const ua = req.headers["user-agent"] || "";
     const path = req.path || "/";
 
@@ -220,39 +325,144 @@ function createGatewayMiddleware(config) {
     if (OPENFEEDER_PATHS.test(path)) return next();
     if (!isLlmBot(ua)) return next();
 
-    const baseUrl = config.siteUrl.replace(/\/$/, "");
     const ctx = detectContext(path);
-    const questions = buildQuestions(ctx, path, baseUrl, hasEcommerce);
+    const context = {
+      page_requested: path,
+      detected_type: ctx.type,
+      detected_topic: ctx.topic,
+      site_capabilities: this.hasEcommerce
+        ? ["content", "search", "products"]
+        : ["content", "search"],
+    };
 
-    res.set({
-      "Content-Type": "application/json; charset=utf-8",
-      "X-OpenFeeder": "1.0",
-      "X-OpenFeeder-Gateway": "interactive",
-      "Access-Control-Allow-Origin": "*",
+    // Mode 2 — Direct (Warm Start): intent headers or _of_* query params present
+    const intentData = extractIntentData(req);
+    if (intentData) {
+      setGatewayHeaders(res);
+      return res.json(buildTailoredResponse(intentData, context, this.baseUrl));
+    }
+
+    // Mode 1 Round 1 — Cold Start: no intent → return dialogue + session
+    const questions = buildQuestions(ctx, path, this.baseUrl, this.hasEcommerce);
+    const sessionId = this.sessions.create({
+      url: path,
+      detected_type: ctx.type,
+      detected_topic: ctx.topic,
+      created_at: Date.now(),
     });
 
+    setGatewayHeaders(res);
     res.json({
       openfeeder: "1.0",
       gateway: "interactive",
       message:
         "This site supports OpenFeeder — a structured content protocol for AI systems. " +
         "Instead of scraping HTML, use the actions below to get exactly what you need.",
-      context: {
-        page_requested: path,
-        detected_type: ctx.type,
-        detected_topic: ctx.topic,
-        site_capabilities: hasEcommerce
-          ? ["content", "search", "products"]
-          : ["content", "search"],
+      dialog: {
+        active: true,
+        session_id: sessionId,
+        expires_in: 300,
+        message: "To give you the most relevant content, a few quick questions:",
+        questions: [
+          {
+            id: "intent",
+            question: "What is your primary goal?",
+            type: "choice",
+            options: ["answer-question", "broad-research", "fact-check", "summarize", "find-sources"],
+          },
+          {
+            id: "depth",
+            question: "How much detail do you need?",
+            type: "choice",
+            options: ["overview", "standard", "deep"],
+          },
+          {
+            id: "format",
+            question: "Preferred output format?",
+            type: "choice",
+            options: ["full-text", "key-facts", "summary", "qa"],
+          },
+          {
+            id: "query",
+            question: "What specifically are you looking for? (optional — leave blank to browse)",
+            type: "text",
+          },
+        ],
+        reply_to: "POST /openfeeder/gateway/respond",
       },
+      context,
       questions,
+      endpoints: {
+        content: `${this.baseUrl}/openfeeder`,
+        discovery: `${this.baseUrl}/.well-known/openfeeder.json`,
+      },
       next_steps: [
-        "Choose the action above that matches your intent and make that GET request.",
-        `Or search directly: GET ${baseUrl}/openfeeder?q=describe+what+you+need`,
-        `Start from the discovery doc: GET ${baseUrl}/.well-known/openfeeder.json`,
+        "Answer the dialog questions via POST /openfeeder/gateway/respond for a tailored response.",
+        "Or choose an action from the questions above and make that GET request.",
+        `Or search directly: GET ${this.baseUrl}/openfeeder?q=describe+what+you+need`,
+        `Start from the discovery doc: GET ${this.baseUrl}/.well-known/openfeeder.json`,
       ],
     });
-  };
+  }
+
+  /**
+   * Mode 1 Round 2 — Handle POST /openfeeder/gateway/respond
+   */
+  handleDialogueRespond(req, res) {
+    const body = req.body || {};
+    const { session_id, answers } = body;
+
+    if (!session_id || typeof session_id !== "string") {
+      setGatewayHeaders(res);
+      return res.status(400).json({
+        openfeeder: "1.0",
+        error: { code: "INVALID_SESSION", message: "Missing or invalid session_id." },
+      });
+    }
+
+    const sessionData = this.sessions.get(session_id);
+    if (!sessionData) {
+      setGatewayHeaders(res);
+      return res.status(400).json({
+        openfeeder: "1.0",
+        error: { code: "SESSION_EXPIRED", message: "Session not found or expired." },
+      });
+    }
+
+    const intentData = {
+      intent: (answers && answers.intent) || "answer-question",
+      depth: (answers && answers.depth) || "standard",
+      format: (answers && answers.format) || "full-text",
+      query: (answers && answers.query) || "",
+      language: (answers && answers.language) || "en",
+    };
+
+    const context = {
+      page_requested: sessionData.url,
+      detected_type: sessionData.detected_type,
+      detected_topic: sessionData.detected_topic,
+      site_capabilities: this.hasEcommerce
+        ? ["content", "search", "products"]
+        : ["content", "search"],
+    };
+
+    this.sessions.delete(session_id);
+
+    setGatewayHeaders(res);
+    res.json(buildTailoredResponse(intentData, context, this.baseUrl));
+  }
 }
 
-module.exports = { createGatewayMiddleware, isLlmBot, detectContext, LLM_AGENTS };
+/**
+ * Create the interactive LLM Gateway middleware (backwards-compatible factory).
+ */
+function createGatewayMiddleware(config) {
+  const handler = new GatewayHandler(config);
+  const middleware = function openfeederGateway(req, res, next) {
+    return handler.handleRequest(req, res, next);
+  };
+  middleware._handler = handler;
+  return middleware;
+}
+
+module.exports = { createGatewayMiddleware, GatewayHandler, isLlmBot, detectContext, LLM_AGENTS };

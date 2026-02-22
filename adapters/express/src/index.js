@@ -96,6 +96,11 @@ function openFeederMiddleware(config) {
       return handleContent(req, res, config);
     }
 
+    // LLM Gateway dialogue respond route (Mode 1 Round 2)
+    if (pathname === '/openfeeder/gateway/respond' && req.method === 'POST' && gateway) {
+      return gateway._handler.handleDialogueRespond(req, res);
+    }
+
     // LLM Gateway: intercept AI bots on non-OpenFeeder pages
     if (gateway) {
       return gateway(req, res, next);
