@@ -5,11 +5,13 @@ A Docker sidecar that crawls a target website, chunks and embeds the content
 into ChromaDB, and exposes it via the OpenFeeder protocol.
 
 Environment variables:
-    SITE_URL          — Required. Base URL of the site to crawl.
-    CRAWL_INTERVAL    — Seconds between re-crawls (default: 3600).
-    MAX_PAGES         — Maximum pages to crawl (default: 500).
-    PORT              — HTTP listen port (default: 8080).
-    EMBEDDING_MODEL   — Sentence-transformer model (default: all-MiniLM-L6-v2).
+    SITE_URL                   — Required. Base URL of the site to crawl.
+    CRAWL_INTERVAL             — Seconds between re-crawls (default: 3600).
+    MAX_PAGES                  — Maximum pages to crawl (default: 500).
+    PORT                       — HTTP listen port (default: 8080).
+    EMBEDDING_MODEL            — Sentence-transformer model (default: all-MiniLM-L6-v2).
+    OPENFEEDER_WEBHOOK_SECRET  — Optional. If set, POST /openfeeder/update requires
+                                 Authorization: Bearer <secret>.
 """
 
 from __future__ import annotations
@@ -21,11 +23,14 @@ import os
 import sys
 import time
 from contextlib import asynccontextmanager
+from typing import Literal
 from urllib.parse import urlparse
 
+import httpx
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-from fastapi import FastAPI, Query, Request
+from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 from chunker import chunk_html
 from crawler import crawl
@@ -40,6 +45,7 @@ CRAWL_INTERVAL = int(os.environ.get("CRAWL_INTERVAL", "3600"))
 MAX_PAGES = int(os.environ.get("MAX_PAGES", "500"))
 PORT = int(os.environ.get("PORT", "8080"))
 EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
+WEBHOOK_SECRET = os.environ.get("OPENFEEDER_WEBHOOK_SECRET", "")
 
 if not SITE_URL:
     sys.exit("FATAL: SITE_URL environment variable is required.")
@@ -278,6 +284,122 @@ async def content(
         },
         headers={"X-OpenFeeder-Cache": "HIT" if cached else "MISS"},
     )
+
+
+# ---------------------------------------------------------------------------
+# Webhook — incremental update endpoint
+# ---------------------------------------------------------------------------
+
+class UpdateRequest(BaseModel):
+    action: Literal["upsert", "delete"] = Field(..., description="'upsert' or 'delete'")
+    urls: list[str] = Field(..., min_length=1, description="Relative URL paths to process")
+
+
+class UpdateResponse(BaseModel):
+    status: str
+    processed: int
+    errors: list[str]
+
+
+def _check_webhook_auth(request: Request) -> None:
+    """Raise 401 if WEBHOOK_SECRET is set and the request doesn't provide it."""
+    if not WEBHOOK_SECRET:
+        return  # Auth disabled — no secret configured
+
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing Bearer token")
+    token = auth_header[len("Bearer "):]
+    if token != WEBHOOK_SECRET:
+        raise HTTPException(status_code=403, detail="Invalid webhook secret")
+
+
+async def _process_update(action: str, urls: list[str]) -> tuple[int, list[str]]:
+    """
+    Core update logic: upsert or delete a list of relative URL paths.
+    Returns (processed_count, error_list).
+    """
+    processed = 0
+    errors: list[str] = []
+
+    for relative_url in urls:
+        full_url = SITE_URL.rstrip("/") + "/" + relative_url.lstrip("/")
+        try:
+            if action == "delete":
+                indexer.delete_page(full_url)
+                logger.info("Webhook: deleted %s", full_url)
+                processed += 1
+
+            elif action == "upsert":
+                async with httpx.AsyncClient(
+                    headers={"User-Agent": "OpenFeeder/1.0 (webhook updater)"},
+                    follow_redirects=True,
+                    timeout=30,
+                ) as client:
+                    resp = await client.get(full_url)
+
+                if resp.status_code >= 400:
+                    errors.append(f"{full_url}: HTTP {resp.status_code}")
+                    continue
+
+                parsed = chunk_html(full_url, resp.text)
+                indexer.index_page(parsed)
+                logger.info("Webhook: upserted %s (%d chunks)", full_url, len(parsed.chunks))
+                processed += 1
+
+        except Exception as exc:
+            logger.exception("Webhook update failed for %s", full_url)
+            errors.append(f"{full_url}: {exc}")
+
+    return processed, errors
+
+
+def _schedule_background_update(action: str, urls: list[str]) -> None:
+    """Fire-and-forget wrapper for background update tasks."""
+    asyncio.create_task(_process_update(action, urls))
+
+
+@app.post("/openfeeder/update", response_model=UpdateResponse)
+async def webhook_update(
+    body: UpdateRequest,
+    request: Request,
+    background_tasks: BackgroundTasks,
+):
+    """
+    Incremental update webhook (OpenFeeder sidecar extension).
+
+    POST /openfeeder/update
+    Authorization: Bearer <OPENFEEDER_WEBHOOK_SECRET>
+
+    Body:
+        { "action": "upsert" | "delete", "urls": ["/slug-1", "/slug-2"] }
+
+    - upsert: re-fetches each URL from the site, re-chunks, and upserts into ChromaDB.
+    - delete: removes all chunks for each URL from ChromaDB.
+
+    For ≤10 URLs the update is processed inline and the result is returned immediately.
+    For >10 URLs the update is queued as a background task and the response is returned
+    immediately with processed=0 (processing continues asynchronously).
+    """
+    _check_webhook_auth(request)
+
+    if indexer is None:
+        raise HTTPException(status_code=503, detail="Indexer not ready")
+
+    INLINE_LIMIT = 10
+
+    if len(body.urls) <= INLINE_LIMIT:
+        # Small batch — process inline and return the real counts
+        processed, errors = await _process_update(body.action, body.urls)
+        return UpdateResponse(status="ok", processed=processed, errors=errors)
+    else:
+        # Large batch — hand off to background and return immediately
+        background_tasks.add_task(_process_update, body.action, body.urls)
+        return UpdateResponse(
+            status="queued",
+            processed=0,
+            errors=[],
+        )
 
 
 # ---------------------------------------------------------------------------

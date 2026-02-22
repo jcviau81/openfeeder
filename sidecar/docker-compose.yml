@@ -16,6 +16,7 @@ services:
       - MAX_PAGES=${MAX_PAGES:-500}
       - PORT=8080
       - EMBEDDING_MODEL=${EMBEDDING_MODEL:-all-MiniLM-L6-v2}
+      - OPENFEEDER_WEBHOOK_SECRET=${OPENFEEDER_WEBHOOK_SECRET:-}
     volumes:
       - openfeeder_data:/data
     restart: unless-stopped

@@ -144,6 +144,106 @@ function openfeeder_invalidate_on_delete( $post_id ) {
 add_action( 'trashed_post', 'openfeeder_invalidate_on_delete' );
 add_action( 'deleted_post', 'openfeeder_invalidate_on_delete' );
 
+// ── Sidecar webhook notifications ─────────────────────────────────────────────
+
+/**
+ * Notify the OpenFeeder sidecar to upsert a post's content.
+ * Triggered when a post is published (new) or updated.
+ *
+ * @param int     $post_id Post ID.
+ * @param WP_Post $post    Post object (may be null in post_updated hook).
+ */
+function openfeeder_notify_sidecar( $post_id, $post = null ) {
+	// Resolve post object if not provided (post_updated passes old + new separately)
+	if ( null === $post ) {
+		$post = get_post( $post_id );
+	}
+
+	if ( ! $post || 'publish' !== $post->post_status ) {
+		return;
+	}
+	if ( wp_is_post_revision( $post_id ) || wp_is_post_autosave( $post_id ) ) {
+		return;
+	}
+
+	$webhook_url = get_option( 'openfeeder_sidecar_webhook', '' );
+	if ( empty( $webhook_url ) ) {
+		return;
+	}
+
+	$permalink = str_replace( home_url(), '', get_permalink( $post_id ) );
+	if ( empty( $permalink ) ) {
+		return;
+	}
+
+	$webhook_key = get_option( 'openfeeder_sidecar_key', '' );
+
+	$headers = array( 'Content-Type' => 'application/json' );
+	if ( ! empty( $webhook_key ) ) {
+		$headers['Authorization'] = 'Bearer ' . $webhook_key;
+	}
+
+	wp_remote_post(
+		trailingslashit( $webhook_url ) . 'openfeeder/update',
+		array(
+			'headers'  => $headers,
+			'body'     => wp_json_encode( array(
+				'action' => 'upsert',
+				'urls'   => array( $permalink ),
+			) ),
+			'blocking' => false,
+			'timeout'  => 5,
+		)
+	);
+}
+add_action( 'publish_post', 'openfeeder_notify_sidecar', 10, 2 );
+add_action( 'post_updated', 'openfeeder_notify_sidecar', 10, 2 );
+
+/**
+ * Notify the OpenFeeder sidecar to delete a post's content from the index.
+ * Triggered when a post is trashed or permanently deleted.
+ *
+ * @param int $post_id Post ID.
+ */
+function openfeeder_delete_from_sidecar( $post_id ) {
+	if ( wp_is_post_revision( $post_id ) || wp_is_post_autosave( $post_id ) ) {
+		return;
+	}
+
+	$webhook_url = get_option( 'openfeeder_sidecar_webhook', '' );
+	if ( empty( $webhook_url ) ) {
+		return;
+	}
+
+	// get_permalink may not work after deletion; use the stored URL or reconstruct
+	$permalink = str_replace( home_url(), '', get_permalink( $post_id ) );
+	if ( empty( $permalink ) ) {
+		return;
+	}
+
+	$webhook_key = get_option( 'openfeeder_sidecar_key', '' );
+
+	$headers = array( 'Content-Type' => 'application/json' );
+	if ( ! empty( $webhook_key ) ) {
+		$headers['Authorization'] = 'Bearer ' . $webhook_key;
+	}
+
+	wp_remote_post(
+		trailingslashit( $webhook_url ) . 'openfeeder/update',
+		array(
+			'headers'  => $headers,
+			'body'     => wp_json_encode( array(
+				'action' => 'delete',
+				'urls'   => array( $permalink ),
+			) ),
+			'blocking' => false,
+			'timeout'  => 5,
+		)
+	);
+}
+add_action( 'trashed_post', 'openfeeder_delete_from_sidecar' );
+add_action( 'deleted_post', 'openfeeder_delete_from_sidecar' );
+
 // ── Settings page ──────────────────────────────────────────────────────────────
 
 /**
@@ -185,6 +285,16 @@ function openfeeder_register_settings() {
 		'sanitize_callback' => 'absint',
 	) );
 	register_setting( 'openfeeder_settings', 'openfeeder_api_key', array(
+		'type'              => 'string',
+		'default'           => '',
+		'sanitize_callback' => 'sanitize_text_field',
+	) );
+	register_setting( 'openfeeder_settings', 'openfeeder_sidecar_webhook', array(
+		'type'              => 'string',
+		'default'           => '',
+		'sanitize_callback' => 'esc_url_raw',
+	) );
+	register_setting( 'openfeeder_settings', 'openfeeder_sidecar_key', array(
 		'type'              => 'string',
 		'default'           => '',
 		'sanitize_callback' => 'sanitize_text_field',
@@ -274,6 +384,36 @@ function openfeeder_settings_page() {
 							class="regular-text" autocomplete="off" />
 						<p class="description">
 							<?php esc_html_e( 'Optional. If set, requests to /openfeeder must include an Authorization: Bearer &lt;key&gt; header. Leave blank to allow public access. The discovery document (/.well-known/openfeeder.json) is always public.', 'openfeeder' ); ?>
+						</p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row">
+						<label for="openfeeder_sidecar_webhook">
+							<?php esc_html_e( 'Sidecar Webhook URL', 'openfeeder' ); ?>
+						</label>
+					</th>
+					<td>
+						<input type="url" id="openfeeder_sidecar_webhook" name="openfeeder_sidecar_webhook"
+							value="<?php echo esc_attr( get_option( 'openfeeder_sidecar_webhook', '' ) ); ?>"
+							class="regular-text" placeholder="http://localhost:8080" />
+						<p class="description">
+							<?php esc_html_e( 'Optional. Base URL of your OpenFeeder sidecar (e.g. http://localhost:8080). When set, WordPress will notify the sidecar whenever a post is published, updated, or deleted, so the sidecar index stays in sync without waiting for the next scheduled re-crawl.', 'openfeeder' ); ?>
+						</p>
+					</td>
+				</tr>
+				<tr>
+					<th scope="row">
+						<label for="openfeeder_sidecar_key">
+							<?php esc_html_e( 'Sidecar Webhook Key', 'openfeeder' ); ?>
+						</label>
+					</th>
+					<td>
+						<input type="text" id="openfeeder_sidecar_key" name="openfeeder_sidecar_key"
+							value="<?php echo esc_attr( get_option( 'openfeeder_sidecar_key', '' ) ); ?>"
+							class="regular-text" autocomplete="off" />
+						<p class="description">
+							<?php esc_html_e( 'Optional. The OPENFEEDER_WEBHOOK_SECRET configured in the sidecar. Sent as Authorization: Bearer &lt;key&gt;. Leave blank if the sidecar has no secret set.', 'openfeeder' ); ?>
 						</p>
 					</td>
 				</tr>

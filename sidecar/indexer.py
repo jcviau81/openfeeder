@@ -138,6 +138,18 @@ class Indexer:
             total += self.index_page(page)
         return total
 
+    def delete_page(self, url: str) -> None:
+        """
+        Remove all indexed data for a URL (chunks + page metadata).
+        Public method used by the webhook update endpoint.
+        """
+        self._delete_page(url)
+        try:
+            self._pages_col.delete(ids=[self._page_id(url)])
+        except Exception:
+            pass
+        logger.info("Deleted all data for %s", url)
+
     def _delete_page(self, url: str) -> None:
         """Remove all chunks associated with a URL."""
         try:

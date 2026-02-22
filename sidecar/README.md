@@ -28,6 +28,7 @@ All configuration is via environment variables:
 | `MAX_PAGES` | No | `500` | Maximum pages to crawl |
 | `PORT` | No | `8080` | HTTP listen port |
 | `EMBEDDING_MODEL` | No | `all-MiniLM-L6-v2` | Sentence-transformer model for embeddings |
+| `OPENFEEDER_WEBHOOK_SECRET` | No | — | If set, the `/openfeeder/update` webhook requires `Authorization: Bearer <secret>` |
 
 ## API Endpoints
 
@@ -57,6 +58,62 @@ GET /openfeeder
 **Page mode** (`url` param): returns chunked content for a specific page.
 
 **Search mode** (`q` param): returns semantically relevant chunks across the site.
+
+### Incremental Update Webhook
+
+```
+POST /openfeeder/update
+Authorization: Bearer <OPENFEEDER_WEBHOOK_SECRET>   (omit if no secret configured)
+Content-Type: application/json
+```
+
+**Body:**
+
+```json
+{
+  "action": "upsert",
+  "urls": ["/my-post-slug", "/another-page"]
+}
+```
+
+| Field | Values | Description |
+|-------|--------|-------------|
+| `action` | `upsert` \| `delete` | Whether to add/update or remove content |
+| `urls` | array of strings | Relative URL paths on the site |
+
+**upsert** — fetches each URL from the site, re-chunks the content, and upserts it into ChromaDB. Use this when a page is published or updated.
+
+**delete** — removes all indexed chunks for each URL from ChromaDB. Use this when a page is deleted or unpublished.
+
+**Response:**
+
+```json
+{
+  "status": "ok",
+  "processed": 2,
+  "errors": []
+}
+```
+
+For batches ≤ 10 URLs the update is processed inline and `processed` reflects the real count. For larger batches the update is queued in the background and `status` will be `"queued"` with `processed: 0`.
+
+**Example:**
+
+```bash
+# Notify the sidecar that /my-new-post was published
+curl -X POST http://localhost:8080/openfeeder/update \
+  -H "Authorization: Bearer mysecret" \
+  -H "Content-Type: application/json" \
+  -d '{"action":"upsert","urls":["/my-new-post"]}'
+
+# Delete a page from the index
+curl -X POST http://localhost:8080/openfeeder/update \
+  -H "Authorization: Bearer mysecret" \
+  -H "Content-Type: application/json" \
+  -d '{"action":"delete","urls":["/old-post"]}'
+```
+
+The [WordPress adapter](../adapters/wordpress/) and [Joomla adapter](../adapters/joomla/) both support calling this webhook automatically when content changes.
 
 ### Health Check
 

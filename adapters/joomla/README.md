@@ -103,6 +103,122 @@ GET /openfeeder
 
 **Search** (`q=`): Returns articles matching the query, ranked by relevance.
 
+## Webhook Trigger (Incremental Index Updates)
+
+When you run the [OpenFeeder sidecar](../../sidecar/README.md), you can push content changes to it in real time instead of waiting for the next scheduled crawl.
+
+### How it works
+
+The sidecar exposes `POST /openfeeder/update`. You call it from a Joomla system plugin whenever content changes.
+
+### Joomla System Plugin — `onContentAfterSave`
+
+Create a minimal system plugin (`plg_system_openfeeder_webhook`) with this logic:
+
+```php
+<?php
+// plugins/system/openfeeder_webhook/openfeeder_webhook.php
+
+use Joomla\CMS\Plugin\CMSPlugin;
+use Joomla\CMS\Uri\Uri;
+
+class PlgSystemOpenfeeder_Webhook extends CMSPlugin
+{
+    /**
+     * Fires after any content item is saved (article published/updated).
+     */
+    public function onContentAfterSave(string $context, object $article, bool $isNew): bool
+    {
+        if ($context !== 'com_content.article') {
+            return true;
+        }
+        if (empty($article->state) || $article->state !== 1) {
+            return true; // not published
+        }
+
+        $webhookUrl = $this->params->get('webhook_url', '');
+        $webhookKey = $this->params->get('webhook_key', '');
+        if (empty($webhookUrl)) {
+            return true;
+        }
+
+        // Build relative URL (e.g. /my-category/my-article)
+        $slug = '/' . ($article->catid ? '' : '') . $article->alias;
+        // For a full SEF URL you may want to use Route::_() here
+
+        $this->_callWebhook($webhookUrl, $webhookKey, 'upsert', [$slug]);
+        return true;
+    }
+
+    /**
+     * Fires after a content item is deleted.
+     */
+    public function onContentAfterDelete(string $context, object $article): bool
+    {
+        if ($context !== 'com_content.article') {
+            return true;
+        }
+
+        $webhookUrl = $this->params->get('webhook_url', '');
+        $webhookKey = $this->params->get('webhook_key', '');
+        if (empty($webhookUrl)) {
+            return true;
+        }
+
+        $slug = '/' . $article->alias;
+        $this->_callWebhook($webhookUrl, $webhookKey, 'delete', [$slug]);
+        return true;
+    }
+
+    private function _callWebhook(string $baseUrl, string $key, string $action, array $urls): void
+    {
+        $endpoint = rtrim($baseUrl, '/') . '/openfeeder/update';
+        $headers  = ['Content-Type: application/json'];
+        if (!empty($key)) {
+            $headers[] = 'Authorization: Bearer ' . $key;
+        }
+
+        $ch = curl_init($endpoint);
+        curl_setopt_array($ch, [
+            CURLOPT_POST           => true,
+            CURLOPT_POSTFIELDS     => json_encode(['action' => $action, 'urls' => $urls]),
+            CURLOPT_HTTPHEADER     => $headers,
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_TIMEOUT        => 5,
+            CURLOPT_NOSIGNAL       => 1,
+        ]);
+        curl_exec($ch);
+        curl_close($ch);
+    }
+}
+```
+
+**Plugin manifest** (`openfeeder_webhook.xml`):
+
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<extension type="plugin" group="system" method="upgrade">
+    <name>plg_system_openfeeder_webhook</name>
+    <version>1.0.0</version>
+    <description>Notifies the OpenFeeder sidecar on content changes.</description>
+    <files>
+        <filename plugin="openfeeder_webhook">openfeeder_webhook.php</filename>
+    </files>
+    <config>
+        <fields name="params">
+            <fieldset name="basic">
+                <field name="webhook_url" type="url" label="Sidecar Webhook URL"
+                    description="Base URL of your OpenFeeder sidecar (e.g. http://localhost:8080)" default="" />
+                <field name="webhook_key" type="text" label="Sidecar Webhook Key"
+                    description="Value of OPENFEEDER_WEBHOOK_SECRET on the sidecar. Leave blank if not set." default="" />
+            </fieldset>
+        </fields>
+    </config>
+</extension>
+```
+
+Install via **System > Install > Extensions**, configure the webhook URL and key in the plugin parameters, and enable the plugin.
+
 ## License
 
 GNU General Public License v2 or later.
