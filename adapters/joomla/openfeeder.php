@@ -1,8 +1,21 @@
 <?php
 /**
- * OpenFeeder standalone endpoint for Joomla
- * Reads Joomla config directly, queries DB without full app bootstrap.
+ * OpenFeeder for Joomla
+ *
+ * Dual-mode file:
+ *  - Installed via Extension Manager → loaded as plugin stub (safe, no output)
+ *  - Copied to webroot → runs as standalone endpoint (reads DB directly)
  */
+
+// When included by Joomla as a plugin, _JEXEC is defined — bail out safely.
+// The .htaccess rules route /.well-known/openfeeder.json and /openfeeder
+// directly to this file in the webroot (bypassing Joomla bootstrap).
+if (defined('_JEXEC')) {
+    // Joomla 4+ uses services/provider.php — nothing to do here.
+    return;
+}
+
+// ── Standalone endpoint ───────────────────────────────────────
 
 // Load Joomla config — search in current dir and common Joomla locations
 $configPaths = [
@@ -16,7 +29,6 @@ foreach ($configPaths as $p) {
     if (file_exists($p)) { $configFile = $p; break; }
 }
 if (!$configFile) {
-    // Try to find it relative to DOCUMENT_ROOT
     $docRoot = $_SERVER['DOCUMENT_ROOT'] ?? '';
     if ($docRoot && file_exists($docRoot . '/configuration.php')) {
         $configFile = $docRoot . '/configuration.php';
@@ -49,11 +61,9 @@ try {
     exit;
 }
 
-$siteUrl  = rtrim(isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off'
-    ? 'https://' : 'http://' . ($_SERVER['HTTP_HOST'] ?? 'localhost'), '/');
+$siteUrl  = rtrim((isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off' ? 'https://' : 'http://') . ($_SERVER['HTTP_HOST'] ?? 'localhost'), '/');
 $siteName = $config->sitename ?? 'Joomla Site';
-
-$path = strtok($_SERVER['REQUEST_URI'] ?? '/', '?');
+$path     = strtok($_SERVER['REQUEST_URI'] ?? '/', '?');
 
 // ── Discovery ─────────────────────────────────────────────────
 if (strpos($path, 'openfeeder.json') !== false) {
@@ -70,27 +80,35 @@ if (strpos($path, 'openfeeder.json') !== false) {
 // ── Content endpoint ──────────────────────────────────────────
 $table  = $prefix . 'content';
 $url    = $_GET['url']   ?? null;
-$q      = $_GET['q']     ?? null;
 $page   = max(1, (int)($_GET['page']  ?? 1));
 $limit  = min(50, max(1, (int)($_GET['limit'] ?? 10)));
 $offset = ($page - 1) * $limit;
 
 if ($url) {
     $alias = basename(rtrim(parse_url($url, PHP_URL_PATH) ?? '', '/'));
-    $stmt  = $pdo->prepare("SELECT id, title, introtext, fulltext, created, alias FROM `{$table}` WHERE state=1 AND alias=? LIMIT 1");
+    $stmt  = $pdo->prepare("SELECT id, title, introtext, `fulltext`, created, alias FROM `{$table}` WHERE state=1 AND alias=? LIMIT 1");
     $stmt->execute([$alias]);
     $art = $stmt->fetch(PDO::FETCH_OBJ);
 
-    if (!$art) { http_response_code(404); echo json_encode(['schema'=>'openfeeder/1.0','error'=>['code'=>'NOT_FOUND','message'=>'Not found']]); exit; }
+    if (!$art) {
+        http_response_code(404);
+        echo json_encode(['schema' => 'openfeeder/1.0', 'error' => ['code' => 'NOT_FOUND', 'message' => 'Not found']]);
+        exit;
+    }
 
     $text   = strip_tags($art->introtext . ' ' . $art->fulltext);
     $chunks = chunk_text($text);
     echo json_encode([
-        'schema'=>'openfeeder/1.0','url'=>$url,'title'=>$art->title,'author'=>null,
-        'published'=>$art->created,'updated'=>null,'language'=>'en',
-        'summary'=>mb_substr(strip_tags($art->introtext), 0, 300),
-        'chunks'=>$chunks,
-        'meta'=>['total_chunks'=>count($chunks),'returned_chunks'=>count($chunks),'cached'=>false,'cache_age_seconds'=>null],
+        'schema'    => 'openfeeder/1.0',
+        'url'       => $url,
+        'title'     => $art->title,
+        'author'    => null,
+        'published' => $art->created,
+        'updated'   => null,
+        'language'  => 'en',
+        'summary'   => mb_substr(strip_tags($art->introtext), 0, 300),
+        'chunks'    => $chunks,
+        'meta'      => ['total_chunks' => count($chunks), 'returned_chunks' => count($chunks), 'cached' => false, 'cache_age_seconds' => null],
     ], JSON_PRETTY_PRINT);
     exit;
 }
@@ -112,7 +130,7 @@ $items = array_map(fn($a) => [
     'summary'   => mb_substr(strip_tags($a->introtext), 0, 200),
 ], $articles);
 
-echo json_encode(['schema'=>'openfeeder/1.0','type'=>'index','page'=>$page,'total_pages'=>$totalPages,'items'=>$items], JSON_PRETTY_PRINT);
+echo json_encode(['schema' => 'openfeeder/1.0', 'type' => 'index', 'page' => $page, 'total_pages' => $totalPages, 'items' => $items], JSON_PRETTY_PRINT);
 
 function chunk_text(string $text, int $size = 500): array {
     $paragraphs = preg_split('/\n{2,}/', trim($text));
@@ -120,7 +138,7 @@ function chunk_text(string $text, int $size = 500): array {
     foreach ($paragraphs as $p) {
         $p = trim($p);
         if (strlen($p) < 20) continue;
-        $chunks[] = ['id'=>'c'.(++$i),'text'=>$p,'type'=>'paragraph','relevance'=>null];
+        $chunks[] = ['id' => 'c' . (++$i), 'text' => $p, 'type' => 'paragraph', 'relevance' => null];
     }
-    return $chunks ?: [['id'=>'c1','text'=>mb_substr($text,0,$size),'type'=>'paragraph','relevance'=>null]];
+    return $chunks ?: [['id' => 'c1', 'text' => mb_substr($text, 0, $size), 'type' => 'paragraph', 'relevance' => null]];
 }

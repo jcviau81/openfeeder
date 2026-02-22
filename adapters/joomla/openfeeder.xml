@@ -2,58 +2,12 @@
 <extension type="plugin" group="system" method="upgrade">
     <name>plg_system_openfeeder</name>
     <author>OpenFeeder</author>
+    <authorUrl>https://github.com/jcviau81/openfeeder</authorUrl>
     <creationDate>2026-02-22</creationDate>
     <version>1.0.3</version>
-    <description>PLG_SYSTEM_OPENFEEDER_DESC</description>
-    <namespace path="src">Joomla\Plugin\System\OpenFeeder</namespace>
+    <description>OpenFeeder — LLM-optimized content endpoint for Joomla. After install, add .htaccess routing rules (see INSTALL.md).</description>
 
     <files>
         <filename plugin="openfeeder">openfeeder.php</filename>
-        <folder>services</folder>
-        <folder>src</folder>
-        <folder>tmpl</folder>
-        <folder>language</folder>
     </files>
-
-    <languages folder="language">
-        <language tag="en-GB">en-GB/en-GB.plg_system_openfeeder.ini</language>
-        <language tag="en-GB">en-GB/en-GB.plg_system_openfeeder.sys.ini</language>
-    </languages>
-
-    <config>
-        <fields name="params">
-            <fieldset name="basic">
-                <field
-                    name="enabled"
-                    type="radio"
-                    label="PLG_SYSTEM_OPENFEEDER_ENABLED_LABEL"
-                    description="PLG_SYSTEM_OPENFEEDER_ENABLED_DESC"
-                    default="1"
-                    class="btn-group"
-                >
-                    <option value="1">JYES</option>
-                    <option value="0">JNO</option>
-                </field>
-
-                <field
-                    name="max_chunks"
-                    type="number"
-                    label="PLG_SYSTEM_OPENFEEDER_MAX_CHUNKS_LABEL"
-                    description="PLG_SYSTEM_OPENFEEDER_MAX_CHUNKS_DESC"
-                    default="50"
-                    min="1"
-                    max="50"
-                />
-
-                <field
-                    name="site_description"
-                    type="text"
-                    label="PLG_SYSTEM_OPENFEEDER_SITE_DESCRIPTION_LABEL"
-                    description="PLG_SYSTEM_OPENFEEDER_SITE_DESCRIPTION_DESC"
-                    default=""
-                    filter="string"
-                />
-            </fieldset>
-        </fields>
-    </config>
 </extension>
