@@ -28,6 +28,36 @@ https://yoursite.com/openfeeder                ← content
 
 No scraping. No guessing. No noise. Just the content — structured, chunked, and ready.
 
+## Why Server-Side Changes Everything
+
+Most LLM web tools — scrapers, Firecrawl, Common Crawl — work **after** the rendering pipeline. They fetch HTML (or render it with a headless browser), then try to extract meaning from the noise.
+
+OpenFeeder works **before** the rendering pipeline, directly at the data source:
+
+```
+❌ Scraper approach:
+  LLM → HTTP → rendered HTML (200KB soup) → strip noise → maybe useful content
+
+✅ OpenFeeder approach:
+  LLM → HTTP → OpenFeeder endpoint → structured JSON (1KB) → direct content
+```
+
+With **native adapters**, the data never touches HTML at all:
+
+| Adapter | Source | SPA/React? Doesn't matter |
+|---------|--------|--------------------------|
+| WordPress | `WP_Query` → DB directly | ✅ Even if the theme is broken |
+| Express | Your routes, your ORM | ✅ Even if frontend is React/Vue/Svelte |
+| Next.js | `getStaticProps` / RSC | ✅ SSR or full SPA |
+| FastAPI | Your Pydantic models | ✅ |
+| Astro | Content collections | ✅ |
+
+**A React SPA with 200KB of JavaScript? Irrelevant.** Native adapters talk directly to your database — the frontend doesn't exist from OpenFeeder's perspective.
+
+The **Universal Sidecar** handles sites you don't control (third-party, legacy) by crawling + extracting JSON-LD/OpenGraph structured data from the `<head>` — which is server-rendered even on SPAs.
+
+---
+
 ## Live Demo
 
 **SketchyNews** is the world's first OpenFeeder-compatible site:
