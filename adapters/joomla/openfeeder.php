@@ -4,14 +4,30 @@
  * Reads Joomla config directly, queries DB without full app bootstrap.
  */
 
-// Load Joomla config to get DB credentials
-if (!file_exists(__DIR__ . '/configuration.php')) {
+// Load Joomla config — search in current dir and common Joomla locations
+$configPaths = [
+    __DIR__ . '/configuration.php',
+    dirname(__DIR__) . '/configuration.php',
+    '/var/www/html/configuration.php',
+    '/var/www/configuration.php',
+];
+$configFile = null;
+foreach ($configPaths as $p) {
+    if (file_exists($p)) { $configFile = $p; break; }
+}
+if (!$configFile) {
+    // Try to find it relative to DOCUMENT_ROOT
+    $docRoot = $_SERVER['DOCUMENT_ROOT'] ?? '';
+    if ($docRoot && file_exists($docRoot . '/configuration.php')) {
+        $configFile = $docRoot . '/configuration.php';
+    }
+}
+if (!$configFile) {
     http_response_code(500);
-    echo json_encode(['error' => 'Joomla configuration.php not found']);
+    echo json_encode(['error' => 'Joomla configuration.php not found. Place openfeeder.php in your Joomla webroot.']);
     exit;
 }
-
-require_once __DIR__ . '/configuration.php';
+require_once $configFile;
 $config = new JConfig();
 
 header('Content-Type: application/json; charset=utf-8');
