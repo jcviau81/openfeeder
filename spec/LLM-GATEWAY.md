@@ -1,21 +1,28 @@
-# OpenFeeder LLM Gateway
+# OpenFeeder Interactive LLM Gateway
+
+*Copyright (c) 2026 Jean-Christophe Viau. Licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).*
+
+---
 
 ## Overview
 
-When an AI crawler visits a page on an OpenFeeder-enabled site, instead of scraping raw HTML, it receives a structured JSON response that:
+The OpenFeeder Interactive LLM Gateway detects AI crawler requests and responds with a structured, context-aware JSON dialogue that:
 
-1. Announces OpenFeeder support
-2. Provides endpoint instructions
-3. Optionally answers the crawler's implied query directly
+1. **Detects** the type of page the AI was trying to scrape (product, article, category, search, home)
+2. **Poses targeted questions** based on the detected context
+3. **Provides pre-built query actions** so the AI can get exactly what it needs in one follow-up request
+4. **Eliminates guesswork** — no need for the AI to discover endpoints or construct query parameters
 
-This turns passive scraping into **active, structured data exchange**.
+This transforms passive scraping interception into an **active, intent-driven dialogue** between the site and the AI system.
+
+---
 
 ## Detection
 
-Detect LLM crawlers via `User-Agent` header:
+Intercept GET requests from known LLM crawlers via `User-Agent`:
 
-| Bot | User-Agent pattern |
-|-----|-------------------|
+| Bot | Pattern |
+|-----|---------|
 | OpenAI GPTBot | `GPTBot` |
 | OpenAI ChatGPT | `ChatGPT-User` |
 | Anthropic | `ClaudeBot`, `anthropic-ai` |
@@ -27,80 +34,159 @@ Detect LLM crawlers via `User-Agent` header:
 | Amazon | `Amazonbot` |
 | You.com | `YouBot` |
 
-## Gateway Response
+**Skip:** POST/PUT/DELETE, static assets (`.js`, `.css`, `.png`…), OpenFeeder own endpoints (`/openfeeder`, `/.well-known/openfeeder.*`)
 
-When an LLM bot is detected, any page request returns:
+---
 
-**HTTP 200** with `Content-Type: application/json`
+## Context Detection
+
+Before generating questions, the gateway analyzes the requested URL (and, in CMS implementations, the resolved query object) to detect the page type:
+
+| Type | Detection |
+|------|-----------|
+| `product` | URL contains `/product/`, `/shop/`, `/item/` — or WP `is_singular('product')` |
+| `product_category` | URL contains `/category/`, `/collection/` — or WP `is_product_category()` |
+| `article` | URL contains `/blog/`, `/post/`, `/article/` — or WP `is_singular()` |
+| `category` | WP `is_category()` / `is_tag()` / `is_tax()` |
+| `search` | URL starts with `/search` — or WP `is_search()` |
+| `shop` | WP `is_shop()` |
+| `home` | Root `/` — or WP `is_home()` / `is_front_page()` |
+| `page` | Fallback for unrecognized patterns |
+
+In CMS implementations (WordPress), the actual post title, tags, and categories are resolved from the database to generate more specific question text.
+
+---
+
+## Response Format
 
 ```json
 {
   "openfeeder": "1.0",
-  "message": "This site supports OpenFeeder — a structured content protocol for AI systems. Use the endpoints below instead of scraping HTML.",
-  "endpoints": {
-    "discovery": "/.well-known/openfeeder.json",
-    "content": "/openfeeder"
+  "gateway": "interactive",
+  "message": "This site supports OpenFeeder. Instead of scraping HTML, use the actions below to get exactly what you need.",
+
+  "context": {
+    "page_requested": "/product/blue-jacket",
+    "detected_type": "product",
+    "detected_topic": "Blue Jacket",
+    "site_capabilities": ["content", "search", "products"]
   },
-  "usage": {
-    "index": "GET /openfeeder",
-    "search": "GET /openfeeder?q=your+search+query",
-    "single_page": "GET /openfeeder?url=/page-slug",
-    "paginate": "GET /openfeeder?page=2&limit=10"
-  },
-  "current_page": {
-    "url": "/the-page-you-requested",
-    "openfeeder_url": "/openfeeder?url=/the-page-you-requested"
-  },
-  "hint": "What are you looking for? Append ?q=your+query to /openfeeder to get relevant content chunks directly."
+
+  "questions": [
+    {
+      "question": "Do you want the full details of \"Blue Jacket\"?",
+      "intent": "single_product",
+      "action": "GET https://example.com/openfeeder/products?url=/product/blue-jacket",
+      "returns": "Full description, price, variants, availability, stock status"
+    },
+    {
+      "question": "Are you comparing this with other \"Jackets\" products?",
+      "intent": "category_browse",
+      "action": "GET https://example.com/openfeeder/products?category=jackets",
+      "returns": "All products in \"Jackets\" with pricing and availability"
+    },
+    {
+      "question": "Are you looking for similar products by keyword?",
+      "intent": "keyword_search",
+      "action": "GET https://example.com/openfeeder/products?q=blue+jacket",
+      "returns": "Products matching keywords from the name/description"
+    },
+    {
+      "question": "Are you filtering by price or availability?",
+      "intent": "price_filter",
+      "action": "GET https://example.com/openfeeder/products?in_stock=true",
+      "returns": "All in-stock products (add &min_price=X&max_price=Y for budget filter)"
+    }
+  ],
+
+  "next_steps": [
+    "Choose the action above that matches your intent and make that GET request.",
+    "Or search directly: GET https://example.com/openfeeder?q=describe+what+you+need",
+    "Start from the discovery doc: GET https://example.com/.well-known/openfeeder.json"
+  ]
 }
 ```
 
-## Headers
+---
 
-Always include:
+## Question Templates by Page Type
+
+### Product page
+- Full product details (`?url=`)
+- Similar products in same category (`?category=`)
+- Similar products by keyword (`?q=title`)
+- Price/availability filter (`?in_stock=true`, `?min_price=`, `?max_price=`)
+
+### Category / Shop page
+- Browse category (`?category=slug`)
+- In-stock only (`?in_stock=true`)
+- On-sale items (`?on_sale=true`)
+- Keyword search (`?q=`)
+
+### Article / Blog post
+- Full article content (`?url=`)
+- Related content by topic (`?q=title`)
+- Related content by tags (WordPress: resolved from DB)
+- Browse all articles (`/openfeeder`)
+
+### Search page
+- Structured search results (`?q=search_query`)
+- Product search (if e-commerce enabled)
+
+### Home page
+- Browse all content (`/openfeeder`)
+- Search (`?q=`)
+- Browse products (if e-commerce enabled)
+
+---
+
+## Response Headers
+
 ```
+Content-Type: application/json; charset=utf-8
 X-OpenFeeder: 1.0
-X-OpenFeeder-Gateway: active
+X-OpenFeeder-Gateway: interactive
 Access-Control-Allow-Origin: *
 ```
 
-## Behavior Rules
+---
 
-1. **Only intercept GET requests** — don't intercept POST/PUT/etc.
-2. **Don't intercept OpenFeeder endpoints themselves** — `/openfeeder`, `/.well-known/openfeeder.json` serve normally
-3. **Don't intercept static assets** — `.js`, `.css`, `.png`, images, etc.
-4. **Return 200, not redirect** — LLMs handle 200 JSON better than 302
-5. **Include `current_page`** — helps the LLM understand what it was looking for and get it via OpenFeeder
-
-## Config
+## Configuration
 
 ```js
+// Express
 openFeederMiddleware({
-  // ... other config
-  llmGateway: true,             // enable LLM gateway (default: false)
-  llmGatewayMessage: "Custom message for AI systems", // optional
+  siteName: 'My Site',
+  siteUrl: 'https://mysite.com',
+  llmGateway: true,
+  hasEcommerce: true,   // enables product questions
+  getItems: ...,
+  getItem: ...,
 })
 ```
 
-## Why This Works
+```php
+// WordPress — admin toggle: Settings > OpenFeeder > LLM Gateway
+// WooCommerce auto-detected (class_exists('WooCommerce'))
+```
 
-LLMs parsing tool/browser output will see structured JSON instead of HTML soup. The JSON explicitly tells them:
-- "Use this API"
-- "Here's how"
-- "Here's the direct link to what you wanted"
+---
 
-This reduces token waste, improves accuracy, and signals that the site is **AI-friendly**.
+## Comparison: Static vs. Interactive Gateway
 
-## Comparison to llms.txt
+| | Static (v1) | Interactive (v2) |
+|--|-------------|------------------|
+| Response | Generic "use OpenFeeder" message | Context-aware questions with pre-built actions |
+| Page type detection | No | Yes (URL patterns + CMS query objects) |
+| Topic extraction | No | Yes (from URL slug or DB title) |
+| Pre-built query URLs | Single hint | Multiple targeted actions per intent |
+| Category awareness | No | Yes (resolves actual categories from DB in WP) |
+| Tag awareness | No | Yes (resolved from WP post tags) |
+| E-commerce awareness | No | Yes (product questions only when WC active) |
 
-| | `llms.txt` | OpenFeeder LLM Gateway |
-|--|-----------|----------------------|
-| Format | Static text file | Dynamic JSON per-request |
-| Location | `/llms.txt` | Every page (for AI bots) |
-| Interactivity | None | Includes current page URL + direct OpenFeeder link |
-| Query support | No | Yes (`?q=` search hint) |
-| Discovery | Manual | Auto via `/.well-known/openfeeder.json` |
+---
 
-## Reference Implementation
+## Reference Implementations
 
-See `adapters/express/src/gateway.js` and `adapters/wordpress/includes/class-gateway.php`.
+- **Express.js:** `adapters/express/src/gateway.js`
+- **WordPress:** `adapters/wordpress/includes/class-gateway.php`
