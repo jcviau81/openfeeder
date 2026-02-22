@@ -100,7 +100,9 @@ $total      = (int) $pdo->query("SELECT COUNT(*) FROM `{$table}` WHERE state=1")
 $totalPages = max(1, (int) ceil($total / $limit));
 
 $stmt = $pdo->prepare("SELECT id, title, created, alias, introtext FROM `{$table}` WHERE state=1 ORDER BY created DESC LIMIT ? OFFSET ?");
-$stmt->execute([$limit, $offset]);
+$stmt->bindValue(1, $limit, PDO::PARAM_INT);
+$stmt->bindValue(2, $offset, PDO::PARAM_INT);
+$stmt->execute();
 $articles = $stmt->fetchAll(PDO::FETCH_OBJ);
 
 $items = array_map(fn($a) => [

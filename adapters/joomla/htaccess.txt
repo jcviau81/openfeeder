@@ -1,0 +1,3 @@
+## OpenFeeder LLM endpoints — add these lines BEFORE the Joomla rewrite rules
+RewriteRule ^\.well-known/openfeeder\.json$ openfeeder.php [L,QSA]
+RewriteRule ^openfeeder/?$ openfeeder.php [L,QSA]
