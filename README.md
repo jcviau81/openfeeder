@@ -1,6 +1,8 @@
 # 🌐 OpenFeeder
 
-> A standard protocol for websites to expose their content natively to LLMs — serverside, structured, real-time, noise-free.
+> An open standard for websites to expose their content natively to LLMs — serverside, structured, real-time, noise-free.
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 ---
 
@@ -12,7 +14,6 @@ When an LLM tries to read a website today, it gets:
 - Ads, nav bars, footers, cookie banners
 - JavaScript that doesn't render
 - Throttling, CAPTCHAs, anti-bot walls
-- Content that has nothing to do with what it needed
 
 This is broken. We're asking LLMs to dig through garbage to find meaning.
 
@@ -21,10 +22,38 @@ This is broken. We're asking LLMs to dig through garbage to find meaning.
 **OpenFeeder** is a server-side protocol. Websites expose a clean, structured endpoint specifically designed for LLM consumption:
 
 ```
-https://yoursite.com/.well-known/openfeeder.json
+https://yoursite.com/.well-known/openfeeder.json   ← discovery
+https://yoursite.com/api/openfeeder                ← content
 ```
 
 No scraping. No guessing. No noise. Just the content — structured, chunked, and ready.
+
+## Live Demo
+
+**SketchyNews** is the world's first OpenFeeder-compatible site:
+
+```bash
+# Discovery
+curl https://sketchynews.snaf.foo/.well-known/openfeeder.json
+
+# Index (all comics, paginated)
+curl https://sketchynews.snaf.foo/api/openfeeder
+
+# Semantic search
+curl "https://sketchynews.snaf.foo/api/openfeeder?q=ukraine"
+
+# Specific page
+curl "https://sketchynews.snaf.foo/api/openfeeder?url=https://sketchynews.snaf.foo/comic/some-comic"
+```
+
+**Result vs raw HTML:**
+```
+Raw HTML:    19,535 bytes  ← tags, scripts, nav, ads...
+OpenFeeder:   1,085 bytes  ← clean JSON, just the content
+```
+**18x smaller. Zero noise.**
+
+---
 
 ## Designed by an LLM, for LLMs
 
@@ -35,63 +64,43 @@ This project was conceived by **Ember** 🔥 (an AI assistant) and **JC** (a hum
 ## How It Works
 
 ### 1. Discovery
-
-Any LLM or agent checks for the endpoint:
-
 ```
-GET https://example.com/.well-known/openfeeder.json
+GET /.well-known/openfeeder.json
 ```
+Returns site metadata + endpoint location.
 
-### 2. Index Response
+### 2. Index (no `url` param)
+```
+GET /api/openfeeder?page=1
+```
+Returns paginated list of all available content.
 
-The server returns a structured index:
+### 3. Fetch a specific page
+```
+GET /api/openfeeder?url=/path/to/page
+```
+Returns clean, chunked content for that page.
 
+### 4. Semantic search
+```
+GET /api/openfeeder?q=your+query
+```
+Returns the most relevant content chunks for the query.
+
+### Example response
 ```json
 {
-  "version": "1.0",
-  "site": {
-    "name": "Example Blog",
-    "language": "en",
-    "description": "A blog about things that matter"
-  },
-  "feed": {
-    "type": "paginated",
-    "endpoint": "/api/openfeeder",
-    "total_pages": 142
-  },
-  "capabilities": ["search", "realtime", "embeddings"]
-}
-```
-
-### 3. Content Request
-
-```
-GET /api/openfeeder?url=/article/my-post&q=climate+change
-```
-
-### 4. LLM-Ready Response
-
-```json
-{
+  "schema": "openfeeder/1.0",
   "url": "/article/my-post",
   "title": "My Post Title",
   "author": "Jane Doe",
   "published": "2026-02-21T20:00:00Z",
-  "updated": "2026-02-21T21:00:00Z",
-  "summary": "A short, LLM-friendly summary of the page.",
+  "summary": "A short, LLM-friendly summary.",
   "chunks": [
-    {
-      "id": "c1",
-      "text": "The most relevant paragraph to the query...",
-      "relevance": 0.94
-    },
-    {
-      "id": "c2", 
-      "text": "Another relevant passage...",
-      "relevance": 0.87
-    }
+    { "id": "c1", "text": "Most relevant paragraph...", "type": "paragraph", "relevance": 0.94 },
+    { "id": "c2", "text": "Another relevant passage...", "type": "paragraph", "relevance": 0.87 }
   ],
-  "schema": "openfeeder/1.0"
+  "meta": { "total_chunks": 5, "returned_chunks": 2, "cached": true, "cache_age_seconds": 120 }
 }
 ```
 
@@ -99,46 +108,68 @@ GET /api/openfeeder?url=/article/my-post&q=climate+change
 
 ---
 
-## Architecture
+## Implementations
 
-```
-Website Backend
-    ↓
-OpenFeeder Adapter (WordPress plugin / Express middleware / FastAPI / etc.)
-    ↓
-Vector Database (optional but recommended for semantic search)
-    ↓
-/.well-known/openfeeder.json  ←  LLM discovers this
-/api/openfeeder               ←  LLM queries this
+### Universal Sidecar (any platform)
+
+Works with **any website** without modifying the site's code. Runs as a Docker container alongside your existing server.
+
+```yaml
+# docker-compose.yml
+services:
+  openfeeder:
+    image: openfeeder/sidecar
+    environment:
+      SITE_URL: https://yoursite.com
+    ports:
+      - "8080:8080"
 ```
 
-The vector DB layer enables:
-- **Semantic search** — query by meaning, not just keywords
-- **Real-time updates** — new content indexed immediately on publish
-- **Relevance scoring** — LLM gets the chunks it actually needs
+Then route `/.well-known/openfeeder.json` and `/api/openfeeder` to port 8080 via Caddy/Nginx.
+
+→ **[sidecar/](sidecar/)** — Python/FastAPI + ChromaDB + sentence-transformers
 
 ---
 
-## Adapters (Planned)
+### CMS Native Plugins
 
-| Platform | Status |
-|----------|--------|
-| WordPress Plugin | 🔜 Planned |
-| Express.js Middleware | 🔜 Planned |
-| FastAPI Middleware | 🔜 Planned |
-| Astro Integration | 🔜 Planned |
-| Caddy Module | 🔜 Planned |
-| Generic Python | 🔜 Planned |
+Native plugins have direct database access — faster, real-time, and automatically updated when content is published.
+
+| Platform | Status | Location |
+|----------|--------|----------|
+| **WordPress** | ✅ Ready | [adapters/wordpress/](adapters/wordpress/) |
+| **Drupal 10/11** | ✅ Ready | [adapters/drupal/](adapters/drupal/) |
+| **Joomla 4/5** | ✅ Ready | [adapters/joomla/](adapters/joomla/) |
+| Next.js | 🔜 Planned | — |
+| Astro | 🔜 Planned | — |
+| FastAPI | 🔜 Planned | — |
+| Ghost | 🔜 Planned | — |
+
+#### WordPress
+Install the plugin from `adapters/wordpress/`, activate it in wp-admin. Exposes both endpoints automatically.
+
+#### Drupal
+Copy `adapters/drupal/` to `modules/custom/openfeeder/`, enable via Drush or admin UI.
+
+#### Joomla
+Install via Extension Manager from `adapters/joomla/`, enable in Plugin Manager.
 
 ---
 
 ## Spec
 
-Full protocol specification: [`spec/SPEC.md`](spec/SPEC.md)
+Full protocol specification: **[spec/SPEC.md](spec/SPEC.md)**
+
+Key points:
+- Discovery at `/.well-known/openfeeder.json` (always public, no auth)
+- Content at any endpoint defined in the discovery doc
+- Responses exclude ads, navigation, sidebars, cookie banners
+- Optional vector DB layer for semantic search
+- Optional auth for the content endpoint (discovery always public)
 
 ---
 
-## Goal
+## The Goal
 
 Make OpenFeeder a **web standard** — the `robots.txt` of the AI era, but instead of blocking, it *welcomes* AI with clean, meaningful data.
 
@@ -148,10 +179,10 @@ If enough sites adopt it, LLMs stop scraping and start *reading*.
 
 ## Contributing
 
-This is an open standard. PRs welcome for:
-- Adapter implementations
+PRs welcome for:
+- New adapter implementations (Next.js, Astro, Django, Rails...)
 - Spec improvements
-- Validator tooling
+- Validator CLI tool
 - Documentation
 
 ---

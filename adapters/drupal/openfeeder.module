@@ -1,0 +1,41 @@
+<?php
+
+/**
+ * @file
+ * Hook implementations for the OpenFeeder module.
+ */
+
+use Drupal\node\NodeInterface;
+
+/**
+ * Implements hook_node_insert().
+ */
+function openfeeder_node_insert(NodeInterface $node) {
+  openfeeder_invalidate_cache($node);
+}
+
+/**
+ * Implements hook_node_update().
+ */
+function openfeeder_node_update(NodeInterface $node) {
+  openfeeder_invalidate_cache($node);
+}
+
+/**
+ * Implements hook_node_delete().
+ */
+function openfeeder_node_delete(NodeInterface $node) {
+  openfeeder_invalidate_cache($node);
+}
+
+/**
+ * Invalidate OpenFeeder cache for a node.
+ *
+ * @param \Drupal\node\NodeInterface $node
+ *   The node being changed.
+ */
+function openfeeder_invalidate_cache(NodeInterface $node) {
+  /** @var \Drupal\openfeeder\Service\CacheService $cache */
+  $cache = \Drupal::service('openfeeder.cache');
+  $cache->invalidateNode((int) $node->id());
+}

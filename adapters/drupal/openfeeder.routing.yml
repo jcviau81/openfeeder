@@ -1,0 +1,21 @@
+openfeeder.discovery:
+  path: '/.well-known/openfeeder.json'
+  defaults:
+    _controller: '\Drupal\openfeeder\Controller\DiscoveryController::serve'
+  requirements:
+    _access: 'TRUE'
+
+openfeeder.content:
+  path: '/api/openfeeder'
+  defaults:
+    _controller: '\Drupal\openfeeder\Controller\ContentController::serve'
+  requirements:
+    _access: 'TRUE'
+
+openfeeder.settings:
+  path: '/admin/config/system/openfeeder'
+  defaults:
+    _form: '\Drupal\openfeeder\Form\SettingsForm'
+    _title: 'OpenFeeder Settings'
+  requirements:
+    _permission: 'administer site configuration'

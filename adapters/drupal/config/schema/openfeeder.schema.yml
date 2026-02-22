@@ -1,0 +1,13 @@
+openfeeder.settings:
+  type: config_object
+  label: 'OpenFeeder settings'
+  mapping:
+    enabled:
+      type: boolean
+      label: 'Enable OpenFeeder'
+    description:
+      type: string
+      label: 'Site description override'
+    max_chunks:
+      type: integer
+      label: 'Maximum chunks per response'

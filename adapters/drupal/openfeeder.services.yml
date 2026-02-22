@@ -1,0 +1,7 @@
+services:
+  openfeeder.chunker:
+    class: Drupal\openfeeder\Service\ChunkerService
+
+  openfeeder.cache:
+    class: Drupal\openfeeder\Service\CacheService
+    arguments: ['@cache.default']

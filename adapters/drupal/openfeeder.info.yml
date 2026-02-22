@@ -1,0 +1,6 @@
+name: OpenFeeder
+type: module
+description: 'Expose your content to LLMs via the OpenFeeder protocol.'
+core_version_requirement: ^10 || ^11
+package: Web services
+configure: openfeeder.settings
