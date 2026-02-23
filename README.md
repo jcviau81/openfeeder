@@ -75,6 +75,12 @@ curl "https://sketchynews.snaf.foo/openfeeder?q=ukraine"
 
 # Specific page
 curl "https://sketchynews.snaf.foo/openfeeder?url=https://sketchynews.snaf.foo/comic/zelensky-ukraine-everything-necessary-peace-results_20260222_070654"
+
+# Differential sync — only content since a date
+curl "https://sketchynews.snaf.foo/openfeeder?since=2026-02-20T00:00:00Z"
+
+# Date range — closed window
+curl "https://sketchynews.snaf.foo/openfeeder?since=2026-02-01T00:00:00Z&until=2026-02-15T00:00:00Z"
 ```
 
 **Result vs raw HTML (SketchyNews):**
@@ -209,6 +215,19 @@ Returns clean, chunked content for that page.
 GET /openfeeder?q=your+query
 ```
 Returns the most relevant content chunks for the query.
+
+### 5. Differential sync
+```
+GET /openfeeder?since=2026-02-01T00:00:00Z
+GET /openfeeder?until=2026-02-15T00:00:00Z
+GET /openfeeder?since=2026-02-01T00:00:00Z&until=2026-02-15T00:00:00Z
+```
+Returns only content added/updated within the specified window. Ideal for incremental indexing — no need to re-fetch everything on each crawl. Response includes `added`, `updated`, `deleted`, and a `sync_token` for the next call.
+
+- `?since=` alone — open-ended range from that date to now
+- `?until=` alone — everything published before that date  
+- Both combined — closed date range
+- `?q=` always takes priority over date params (different modes)
 
 ### Example response
 ```json
