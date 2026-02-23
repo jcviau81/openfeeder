@@ -59,6 +59,7 @@ The content endpoint path is defined in the discovery document. The **recommende
 | `q` | string | No | Semantic query for relevance ranking |
 | `page` | integer | No | Page number for paginated index (default: 1) |
 | `limit` | integer | No | Max chunks to return (default: 10, max: 50) |
+| `min_score` | float | No | Minimum relevance score 0.0–1.0 (default: 0.0). Filters out chunks below threshold. Only applies when `?q=` is set. Higher = more precise, fewer results. |
 
 ### 3.2 Response Schema
 

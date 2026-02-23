@@ -210,6 +210,7 @@ async def content(
     q: str | None = Query(None, description="Semantic search query"),
     page: int = Query(1, ge=1, description="Page number (index mode)"),
     limit: int = Query(10, ge=1, le=50, description="Max chunks / items to return"),
+    min_score: float = Query(0.0, ge=0.0, le=1.0, description="Minimum relevance score (0.0–1.0). Filters out chunks below threshold. Only applies to search (?q=) mode."),
 ):
     """
     OpenFeeder content endpoint (spec §3).
@@ -258,6 +259,8 @@ async def content(
     # ── Search mode (q param) ───────────────────────────────────────
     if q:
         results = indexer.search(query=q, limit=limit, url_filter=url)
+        if min_score > 0.0:
+            results = [r for r in results if r.relevance >= min_score]
         if not results:
             await _track("search", 0, cached)
             return _error_response("NOT_FOUND", "No results found for query.", 404)
