@@ -5,6 +5,7 @@
 import { discover } from "./discover.js";
 import { list } from "./list.js";
 import { search } from "./search.js";
+import { resolveEndpoint } from "../utils/resolve.js";
 import { httpGet } from "../utils/http.js";
 
 export interface SmartFetchInput {
@@ -23,9 +24,12 @@ export async function smartFetch(input: SmartFetchInput): Promise<SmartFetchResu
   const discoveryResult = await discover(input.url);
 
   if (discoveryResult.supported) {
-    // OpenFeeder is available
+    // Detect if this is a specific page (not root)
+    const parsedUrl = new URL(input.url);
+    const isSpecificPage = parsedUrl.pathname !== "/" && parsedUrl.pathname !== "";
+
+    // Has query → search (optionally filtered to specific page)
     if (input.query) {
-      // Has query → use search
       const results = await search({
         url: input.url,
         query: input.query,
@@ -38,7 +42,24 @@ export async function smartFetch(input: SmartFetchInput): Promise<SmartFetchResu
       };
     }
 
-    // No query → use list
+    // Specific page, no query → fetch page chunks via ?url=
+    if (isSpecificPage) {
+      const endpoint = await resolveEndpoint(input.url);
+      if (endpoint) {
+        const pageEndpoint = `${endpoint}?url=${encodeURIComponent(input.url)}&limit=50`;
+        const resp = await httpGet(pageEndpoint, 15_000);
+        if (resp.status === 200) {
+          return {
+            method: "openfeeder_page",
+            openfeeder_supported: true,
+            url: input.url,
+            content: JSON.parse(resp.text),
+          };
+        }
+      }
+    }
+
+    // Root URL, no query → use list
     const results = await list({ url: input.url });
     return {
       method: "openfeeder_list",
