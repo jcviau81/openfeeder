@@ -128,7 +128,7 @@ No ads. No nav. No cookie banners. No 300KB of JavaScript. Just the content, str
 
 ## Try It Right Now
 
-**SketchyNews** is the first OpenFeeder-compatible site in the wild. It's a WordPress-powered AI comic news site. Try it:
+**SketchyNews** is the first OpenFeeder-compatible site in the wild. It's an Astro-powered AI comic news site. Try it:
 
 ```bash
 # What does this site expose to LLMs?
@@ -160,10 +160,9 @@ OpenFeeder:   1,085 bytes  ← clean JSON, exactly the content
 ### WordPress (43% of the web)
 
 ```bash
-# Download and activate the plugin
-cd wp-content/plugins
-git clone https://github.com/jcviau81/openfeeder adapters/wordpress
-# Activate "OpenFeeder" in wp-admin > Plugins
+# Download the plugin zip
+wget https://sketchynews.snaf.foo/openfeeder-wordpress-v1.0.0.zip
+# Upload & activate via wp-admin > Plugins > Upload Plugin
 ```
 
 That's it. Both endpoints go live immediately with sensible defaults:
