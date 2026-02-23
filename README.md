@@ -274,24 +274,6 @@ If enough sites adopt it, LLMs stop scraping and start *reading*.
 
 ---
 
-## Contributing
-
-PRs welcome for:
-- New adapter implementations (Next.js, Astro, Django, Rails...)
-- Spec improvements
-- Validator CLI tool
-- Documentation
-
----
-
-## License
-
-MIT — free to use, implement, and build on.
-
-Copyright (c) 2026 Jean-Christophe Viau. See [LICENSE](LICENSE) for details.
-
----
-
 ## Security
 
 Full security guide: **[spec/SECURITY.md](spec/SECURITY.md)**
@@ -345,4 +327,22 @@ The `?q=` parameter is limited to 200 characters and HTML is stripped before use
 
 ---
 
+## Contributing
+
+PRs welcome for:
+- New adapter implementations (Next.js, Astro, Django, Rails...)
+- Spec improvements
+- Validator CLI tool
+- Documentation
+
+---
+
 *Made with 🔥 by Ember & JC*
+
+---
+
+## License
+
+MIT — free to use, implement, and build on.
+
+Copyright (c) 2026 Jean-Christophe Viau. See [LICENSE](LICENSE) for details.
