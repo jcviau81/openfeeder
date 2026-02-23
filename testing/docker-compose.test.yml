@@ -1,0 +1,152 @@
+version: "3.8"
+
+services:
+  # ─── WordPress ──────────────────────────────────────────────
+  wordpress:
+    image: wordpress:latest
+    environment:
+      WORDPRESS_DB_HOST: wp-db
+      WORDPRESS_DB_USER: wordpress
+      WORDPRESS_DB_PASSWORD: wordpress
+      WORDPRESS_DB_NAME: wordpress
+    volumes:
+      - wp_data:/var/www/html
+      - ../adapters/wordpress:/var/www/html/wp-content/plugins/openfeeder:ro
+    depends_on:
+      wp-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:80/ > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  wp-db:
+    image: mysql:8.0
+    environment:
+      MYSQL_DATABASE: wordpress
+      MYSQL_USER: wordpress
+      MYSQL_PASSWORD: wordpress
+      MYSQL_ROOT_PASSWORD: rootpassword
+    volumes:
+      - wp_db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-prootpassword"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ─── Drupal ─────────────────────────────────────────────────
+  drupal:
+    image: drupal:10
+    volumes:
+      - drupal_data:/opt/drupal/web
+      - drupal_vendor:/opt/drupal/vendor
+      - ../adapters/drupal:/opt/drupal/web/modules/custom/openfeeder:ro
+    depends_on:
+      drupal-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:80/ > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  drupal-db:
+    image: postgres:15
+    environment:
+      POSTGRES_DB: drupal
+      POSTGRES_USER: drupal
+      POSTGRES_PASSWORD: drupal
+    volumes:
+      - drupal_db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U drupal"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ─── Joomla ─────────────────────────────────────────────────
+  joomla:
+    image: joomla:5
+    environment:
+      JOOMLA_DB_HOST: joomla-db
+      JOOMLA_DB_USER: joomla
+      JOOMLA_DB_PASSWORD: joomla
+      JOOMLA_DB_NAME: joomla
+    volumes:
+      - joomla_data:/var/www/html
+    depends_on:
+      joomla-db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:80/ > /dev/null || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  joomla-db:
+    image: mysql:8.0
+    environment:
+      MYSQL_DATABASE: joomla
+      MYSQL_USER: joomla
+      MYSQL_PASSWORD: joomla
+      MYSQL_ROOT_PASSWORD: rootpassword
+    volumes:
+      - joomla_db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-prootpassword"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ─── Express Test Server ────────────────────────────────────
+  express-test:
+    build:
+      context: ..
+      dockerfile: testing/express-test/Dockerfile
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3002/.well-known/openfeeder.json > /dev/null || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  # ─── FastAPI Test Server ────────────────────────────────────
+  fastapi-test:
+    build:
+      context: ..
+      dockerfile: testing/fastapi-test/Dockerfile
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:3003/.well-known/openfeeder.json > /dev/null || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  # ─── Test Runner ────────────────────────────────────────────
+  test-runner:
+    build:
+      context: ..
+      dockerfile: testing/runner/Dockerfile
+    depends_on:
+      wordpress:
+        condition: service_healthy
+      drupal:
+        condition: service_healthy
+      joomla:
+        condition: service_healthy
+      express-test:
+        condition: service_healthy
+
+volumes:
+  wp_data:
+  wp_db_data:
+  drupal_data:
+  drupal_vendor:
+  drupal_db_data:
+  joomla_data:
+  joomla_db_data:

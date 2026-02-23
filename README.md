@@ -3,6 +3,7 @@
 > An open standard for websites to expose their content natively to LLMs — serverside, structured, real-time, noise-free.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Tests](https://github.com/jcviau81/openfeeder/actions/workflows/test.yml/badge.svg)](https://github.com/jcviau81/openfeeder/actions/workflows/test.yml)
 
 ---
 

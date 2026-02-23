@@ -1,0 +1,95 @@
+name: Tests
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  adapter-tests:
+    name: Adapter Tests (Express, FastAPI, Caching, Security, Gateway)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Install Express test deps
+        run: cd testing/express-test && npm install
+      - name: Install adapter deps
+        run: cd adapters/express && npm install
+      - name: Run Express tests
+        run: node testing/test-express.js
+      - name: Run Caching tests
+        run: node testing/test-caching.js
+      - name: Run Security tests
+        run: node testing/test-security.js
+      - name: Run Gateway Dialogue tests
+        run: node testing/gateway-dialogue-test.js
+
+  sidecar-tests:
+    name: Sidecar Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: pip install httpx
+      - name: Run chunker tests
+        run: python3 sidecar/test_chunker.py
+      - name: Run sidecar unit tests
+        run: python3 sidecar/test_sidecar.py
+        env:
+          SIDECAR_URL: ""
+
+  cms-tests:
+    name: CMS Integration Tests (WordPress, Drupal, Joomla)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Start CMS containers
+        run: docker compose -f testing/docker-compose.yml up -d
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install validator deps
+        run: cd validator && pip install -r requirements.txt
+      - name: Wait for WordPress
+        run: |
+          timeout 120 bash -c 'until curl -sf http://localhost:8081/wp-json/ > /dev/null; do sleep 3; done'
+      - name: Install WordPress plugin
+        run: |
+          docker compose -f testing/docker-compose.yml exec -T wordpress bash -c \
+            "wp --allow-root plugin activate openfeeder 2>/dev/null || true"
+      - name: Run WordPress validator
+        run: python3 validator/validator.py http://localhost:8081
+      - name: Wait for Drupal
+        run: |
+          timeout 120 bash -c 'until curl -sf http://localhost:8082/ > /dev/null; do sleep 3; done'
+      - name: Run Drupal validator
+        run: python3 validator/validator.py http://localhost:8082
+      - name: Wait for Joomla
+        run: |
+          timeout 120 bash -c 'until curl -sf http://localhost:8083/ > /dev/null; do sleep 3; done'
+      - name: Run Joomla validator
+        run: python3 validator/validator.py http://localhost:8083
+      - name: Stop containers
+        if: always()
+        run: docker compose -f testing/docker-compose.yml down -v
+
+  validator-tests:
+    name: Validator Self-Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install deps
+        run: cd validator && pip install -r requirements.txt
+      - name: Test validator against live SketchyNews
+        run: cd validator && python3 validator.py https://sketchynews.snaf.foo
+        continue-on-error: true
