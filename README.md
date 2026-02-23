@@ -1,4 +1,8 @@
-# 🌐 OpenFeeder
+<p align="center">
+  <img src="assets/logo.svg" alt="OpenFeeder" width="80" height="80"/>
+</p>
+
+# OpenFeeder
 
 > An open standard for websites to expose their content natively to LLMs — serverside, structured, real-time, noise-free.
 
