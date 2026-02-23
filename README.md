@@ -90,6 +90,8 @@ OpenFeeder:   1,085 bytes  ← clean JSON, just the content
 18x smaller. Zero noise.
 ```
 
+*SketchyNews is a lean Astro static site — real-world CMS sites are much larger. BBC News: 30x. Ars Technica: 39x. WordPress default theme: 22x. See benchmark below.*
+
 **Cross-site benchmark — measured Feb 23, 2026 using real LLM bot User-Agents (GPTBot, ClaudeBot, PerplexityBot):**
 
 | Site | HTML received by LLM bots | Actual text content | Overhead |
@@ -134,7 +136,7 @@ OpenFeeder JSON:   1,085 bytes
 
 These are not estimates. This is what LLM crawlers actually receive today.
 
-AI bot traffic is a growing share of overall web traffic — industry estimates for content-heavy sites range from 15–25% in 2024, accelerating. Even at 15%, serving those bots 18–40x less data adds up fast. At scale across millions of daily crawl requests, we're talking petabytes of wasted transfer per day — just in nav bars and cookie banners.
+AI bot traffic is a growing share of overall web traffic — industry estimates for content-heavy sites range from 15–25% in 2024, accelerating. Even at 15%, serving those bots 17–39x less data adds up fast. At 100M daily crawl requests across major AI systems, that's **~9.6 TB of wasted bandwidth per day** — just nav bars and cookie banners.
 
 ### ⚡ Processing time & server load
 Serving an OpenFeeder response is cheaper than a full page render — for **native adapters** specifically:
@@ -144,13 +146,32 @@ Serving an OpenFeeder response is cheaper than a full page render — for **nati
 - **Fewer repeated crawls** — LLMs get what they need in 1–2 requests instead of spidering dozens of pages
 
 ### 🌱 Energy & carbon
-Less data transferred = less energy consumed — by your servers, your CDN, and the AI infrastructure on the other end. The math is simple: 18x less data = 18x less network energy for that traffic segment. At scale, across thousands of AI crawl requests per day, this is measurable.
+Less data transferred = less energy consumed — by your servers, your CDN, and the AI infrastructure on the other end.
+
+Based on our measurements (17–39x overhead across major sites) and conservative estimates:
+
+```
+100M crawl requests/day × 96 KB wasted per request = ~9.6 TB/day
+                                                     = ~3.5 PB/year
+```
+
+That's petabytes of nav bars, cookie banners, and JavaScript bundles transferred and immediately discarded — every day. At 20–40x less data per request, OpenFeeder eliminates the vast majority of that waste for any site that adopts it.
 
 ### 💰 Token efficiency for LLM operators
-Every token costs money and latency. A structured 1KB OpenFeeder response vs 20KB of HTML soup:
-- **~20–50x fewer tokens** to process (depending on page complexity)
-- Faster responses for end users
-- Lower inference costs for LLM providers
+Tokens cost money and consume context window. The overhead isn't just bandwidth — it's inference cost:
+
+```
+BBC News HTML:      309 KB  ≈  77,000 tokens to process
+OpenFeeder JSON:    ~3 KB   ≈     750 tokens to process
+                             ─────────────────────────
+                             ~100x fewer tokens         ✅
+```
+
+For companies running RAG pipelines, AI agents, or bulk content processing at scale:
+- **30–100x fewer input tokens** per page (depending on site complexity)
+- Faster responses — less to parse, less to context-window-manage
+- Lower API costs when using LLM providers with input token pricing
+- More context window available for actual reasoning
 
 LLM providers and AI agents will naturally gravitate toward OpenFeeder-compatible sites — getting better results faster, with less compute. Being early means being discoverable when AI-driven traffic becomes the norm.
 
