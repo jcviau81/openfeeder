@@ -59,6 +59,33 @@ The **Universal Sidecar** handles sites you don't control (third-party, legacy) 
 
 ---
 
+## Live Demo
+
+**SketchyNews** is the world's first OpenFeeder-compatible site:
+
+```bash
+# Discovery
+curl https://sketchynews.snaf.foo/.well-known/openfeeder.json
+
+# Index (all comics, paginated)
+curl https://sketchynews.snaf.foo/openfeeder
+
+# Semantic search
+curl "https://sketchynews.snaf.foo/openfeeder?q=ukraine"
+
+# Specific page
+curl "https://sketchynews.snaf.foo/openfeeder?url=https://sketchynews.snaf.foo/comic/zelensky-ukraine-everything-necessary-peace-results_20260222_070654"
+```
+
+**Result vs raw HTML:**
+```
+Raw HTML:    19,535 bytes  ← tags, scripts, nav, ads...
+OpenFeeder:   1,085 bytes  ← clean JSON, just the content
+```
+**18x smaller. Zero noise.**
+
+---
+
 ## Business Impact
 
 OpenFeeder isn't just better for LLMs — it's better for your infrastructure.
@@ -122,33 +149,6 @@ With OpenFeeder: you explicitly define the content, depth, and format. Everythin
 - Restrict to specific content types only
 
 This makes OpenFeeder the right answer to "how do I control what AI knows about my site?"
-
----
-
-## Live Demo
-
-**SketchyNews** is the world's first OpenFeeder-compatible site:
-
-```bash
-# Discovery
-curl https://sketchynews.snaf.foo/.well-known/openfeeder.json
-
-# Index (all comics, paginated)
-curl https://sketchynews.snaf.foo/openfeeder
-
-# Semantic search
-curl "https://sketchynews.snaf.foo/openfeeder?q=ukraine"
-
-# Specific page
-curl "https://sketchynews.snaf.foo/openfeeder?url=https://sketchynews.snaf.foo/comic/zelensky-ukraine-everything-necessary-peace-results_20260222_070654"
-```
-
-**Result vs raw HTML:**
-```
-Raw HTML:    19,535 bytes  ← tags, scripts, nav, ads...
-OpenFeeder:   1,085 bytes  ← clean JSON, just the content
-```
-**18x smaller. Zero noise.**
 
 ---
 
