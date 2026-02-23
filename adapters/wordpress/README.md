@@ -53,6 +53,10 @@ GET /openfeeder
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `page` | integer | 1 | Page number |
+| `since` | RFC3339 | — | Differential sync — return posts published/updated since this date |
+| `until` | RFC3339 | — | Return posts published on or before this date |
+
+Use `?since=` and `?until=` together for a closed date range. `?q=` takes priority over date filters.
 
 **Single post mode** (`url` parameter provided): Returns cleaned, chunked content for the post at that URL.
 

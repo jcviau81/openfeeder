@@ -75,6 +75,10 @@ GET /openfeeder
 | `q` | string | Semantic search query |
 | `page` | int | Page number for index mode (default: 1) |
 | `limit` | int | Max chunks/items to return (default: 10, max: 50) |
+| `since` | RFC3339 | Differential sync — return content added/updated since this date |
+| `until` | RFC3339 | Return content published on or before this date |
+
+Use `?since=` and `?until=` together for closed date ranges. `?q=` takes priority over date params.
 
 **Index mode** (no `url` param): returns a paginated list of all crawled pages.
 

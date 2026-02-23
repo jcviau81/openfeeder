@@ -56,6 +56,9 @@ app.listen(3000);
 | `GET /openfeeder?url=/post-slug` | Single page with chunks |
 | `GET /openfeeder?q=search+term` | Search across titles and content |
 | `GET /openfeeder?page=2&limit=5` | Paginated index with custom page size |
+| `GET /openfeeder?since=<RFC3339>` | Differential sync — content added/updated since date |
+| `GET /openfeeder?until=<RFC3339>` | Content published on or before date |
+| `GET /openfeeder?since=<RFC3339>&until=<RFC3339>` | Closed date range |
 
 ## Config Options
 
