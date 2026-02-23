@@ -317,6 +317,54 @@ class Indexer:
 
         return added, updated
 
+    def get_pages_until(self, until_ts: float) -> tuple[list[dict], list[dict]]:
+        """
+        Return all pages indexed on or before *until_ts* (Unix timestamp).
+        Uses the same added/updated split as get_pages_since (all returned
+        here as "updated" since we have no lower-bound context).
+        """
+        return self.get_pages_in_range(None, until_ts)
+
+    def get_pages_in_range(
+        self,
+        since_ts: float | None,
+        until_ts: float | None,
+    ) -> tuple[list[dict], list[dict]]:
+        """
+        Return pages whose *indexed_at* falls within the optional
+        [since_ts, until_ts] window.  Either bound may be None (open-ended).
+
+        A page is "added" if its first_indexed_at >= since_ts (or since_ts
+        is None), otherwise "updated".
+        """
+        all_pages = self._pages_col.get(include=["metadatas"])
+        if not all_pages["ids"]:
+            return [], []
+
+        added: list[dict] = []
+        updated: list[dict] = []
+
+        for meta in all_pages["metadatas"]:
+            indexed_at = meta.get(META_INDEXED_AT, 0)
+            if since_ts is not None and indexed_at < since_ts:
+                continue
+            if until_ts is not None and indexed_at > until_ts:
+                continue
+            page_obj = {
+                "url": meta.get(META_URL, ""),
+                "title": meta.get(META_TITLE, ""),
+                "published": meta.get(META_PUBLISHED, "") or None,
+                "updated": meta.get(META_UPDATED, "") or None,
+                "summary": meta.get(META_SUMMARY, ""),
+            }
+            first = meta.get(META_FIRST_INDEXED_AT, 0)
+            if since_ts is not None and first >= since_ts:
+                added.append(page_obj)
+            else:
+                updated.append(page_obj)
+
+        return added, updated
+
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------

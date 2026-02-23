@@ -132,7 +132,8 @@ function openFeederMiddleware(config) {
       const q = req.query && req.query.q;
       const url = req.query && req.query.url;
       const since = req.query && req.query.since;
-      const endpoint = q ? 'search' : since ? 'sync' : url ? 'fetch' : 'index';
+      const until = req.query && req.query.until;
+      const endpoint = q ? 'search' : (since || until) ? 'sync' : url ? 'fetch' : 'index';
       trackAfterResponse(req, res, endpoint, Date.now());
 
       return handleContent(req, res, config);

@@ -111,21 +111,30 @@ When called without `url`, the endpoint returns a paginated index of all availab
 }
 ```
 
-### 3.4 Differential Sync (`?since=`)
+### 3.4 Differential Sync (`?since=` / `?until=`)
 
-The `?since=` parameter enables incremental synchronisation. Instead of fetching the full index on every request, an LLM can pass a timestamp (or an opaque `sync_token` returned by a previous response) to receive only content that changed since that point in time.
+The `?since=` and `?until=` parameters enable incremental synchronisation and closed date-range queries. Instead of fetching the full index on every request, an LLM can pass one or both timestamps to receive only content within the specified window.
 
 #### Query
 
 ```
 GET /openfeeder?since=<RFC3339-datetime-or-sync_token>
+GET /openfeeder?until=<RFC3339-datetime>
+GET /openfeeder?since=<RFC3339>&until=<RFC3339>
 ```
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `since` | string | RFC 3339 datetime (e.g. `2026-02-20T00:00:00Z`) **or** a `sync_token` returned by a previous response. |
+| `since` | string | RFC 3339 datetime (e.g. `2026-02-20T00:00:00Z`) **or** a `sync_token` returned by a previous response. Lower bound (inclusive). |
+| `until` | string | RFC 3339 datetime (e.g. `2026-02-15T00:00:00Z`). Upper bound (inclusive). Optional — omit for open-ended "since only". |
 
-When `?since=` is combined with `?q=`, the search parameter takes priority and `?since=` is ignored — they are different modes.
+**Usage examples:**
+
+- `?since=2026-02-01T00:00:00Z` — everything changed from Feb 1 to now (existing behaviour)
+- `?until=2026-02-15T00:00:00Z` — everything published on or before Feb 15
+- `?since=2026-02-01T00:00:00Z&until=2026-02-15T00:00:00Z` — closed range Feb 1–15
+
+When `?since=` or `?until=` is combined with `?q=`, the search parameter takes priority and date range params are ignored — they are different modes.
 
 #### Response Schema
 
@@ -133,7 +142,8 @@ When `?since=` is combined with `?q=`, the search parameter takes priority and `
 {
   "openfeeder_version": "1.0",
   "sync": {
-    "since": "2026-02-20T00:00:00Z",
+    "since": "2026-02-01T00:00:00Z",
+    "until": "2026-02-15T00:00:00Z",
     "as_of": "2026-02-23T02:00:00Z",
     "sync_token": "eyJ0IjoiMjAyNi0wMi0yMyJ9",
     "counts": { "added": 5, "updated": 3, "deleted": 2 }
@@ -146,9 +156,9 @@ When `?since=` is combined with `?q=`, the search parameter takes priority and `
 }
 ```
 
-- **`added`** — page objects whose first publication date is ≥ the `since` timestamp.
-- **`updated`** — page objects that existed before `since` but were modified after it.
-- **`deleted`** — tombstone objects for content that was removed after `since`.
+- **`added`** — page objects whose first publication date is ≥ the `since` timestamp (absent when `?until=` is used alone).
+- **`updated`** — page objects that existed before `since` but were modified within the requested window.
+- **`deleted`** — tombstone objects for content that was removed after `since` (empty when `?until=` is used alone).
 
 Each tombstone contains:
 | Field | Type | Description |
@@ -168,10 +178,13 @@ Clients SHOULD save the `sync_token` from each response and pass it as `?since=<
 
 #### Implementation Notes
 
+- `?until=` accepts only a raw RFC 3339 datetime (not a `sync_token`).
+- When `?until=` is used without `?since=`, the response returns all content published on or before the `until` date. The `since` key is omitted from the `sync` object.
+- When both are provided, `?until=` MUST be ≥ `?since=`. Servers SHOULD return `400 INVALID_PARAM` if `until < since`.
 - Servers that cannot distinguish "added" from "updated" MAY place all changed items in the `updated` array.
 - Servers that cannot track deletions (e.g. static file servers) SHOULD return an empty `deleted` array and MAY include `"deleted_tracking": false` in the `sync` object.
 - Tombstone storage is implementation-defined. A FIFO list capped at 1 000 entries is recommended.
-- `GET /openfeeder` without `?since=` MUST continue to work exactly as before (full index mode).
+- `GET /openfeeder` without `?since=` or `?until=` MUST continue to work exactly as before (full index mode).
 
 ---
 

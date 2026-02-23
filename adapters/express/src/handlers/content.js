@@ -140,6 +140,18 @@ function parseSince(raw) {
 }
 
 /**
+ * Parse a ?until= value — accepts RFC 3339 datetime only (no sync_token).
+ * @param {string} raw
+ * @returns {Date|null}
+ */
+function parseUntil(raw) {
+  if (!raw) return null;
+  const d = new Date(raw);
+  if (!isNaN(d.getTime())) return d;
+  return null;
+}
+
+/**
  * @param {import('express').Request} req
  * @param {import('express').Response} res
  * @param {object} config
@@ -152,15 +164,33 @@ async function handleContent(req, res, config) {
     // Sanitize ?q=: limit to 200 chars, strip HTML
     const query = (req.query.q || '').slice(0, 200).replace(/<[^>]*>/g, '').trim();
     const sinceRaw = req.query.since || '';
+    const untilRaw = req.query.until || '';
 
-    // ── Differential sync mode (?since= without ?q=) ────────────────
-    if (sinceRaw && !query) {
-      const sinceDate = parseSince(sinceRaw);
-      if (!sinceDate) {
-        return sendError(res, 'INVALID_PARAM', 'Invalid ?since= value. Provide an RFC3339 datetime or a valid sync_token.', 400);
+    // ── Differential sync mode (?since= and/or ?until= without ?q=) ────────
+    if ((sinceRaw || untilRaw) && !query) {
+      let sinceDate = null;
+      let untilDate = null;
+
+      if (sinceRaw) {
+        sinceDate = parseSince(sinceRaw);
+        if (!sinceDate) {
+          return sendError(res, 'INVALID_PARAM', 'Invalid ?since= value. Provide an RFC3339 datetime or a valid sync_token.', 400);
+        }
       }
 
-      const sinceMs = sinceDate.getTime();
+      if (untilRaw) {
+        untilDate = parseUntil(untilRaw);
+        if (!untilDate) {
+          return sendError(res, 'INVALID_PARAM', 'Invalid ?until= value. Provide an RFC3339 datetime.', 400);
+        }
+      }
+
+      if (sinceDate && untilDate && untilDate.getTime() < sinceDate.getTime()) {
+        return sendError(res, 'INVALID_PARAM', '?until= must be after ?since=.', 400);
+      }
+
+      const sinceMs = sinceDate ? sinceDate.getTime() : null;
+      const untilMs = untilDate ? untilDate.getTime() : null;
 
       // Get all items and filter by published date (mtime proxy)
       let rawItems, total;
@@ -175,11 +205,16 @@ async function handleContent(req, res, config) {
         ? rawItems.filter((item) => !isExcludedPath(item.url, config.excludePaths))
         : rawItems;
 
-      // Items where published >= since → updated (can't distinguish added vs updated for static files)
+      // Items within the requested date range → updated
+      // (can't distinguish added vs updated for static files)
       const updated = pathFiltered
         .filter((item) => {
           const pubDate = new Date(item.published || 0);
-          return !isNaN(pubDate.getTime()) && pubDate.getTime() >= sinceMs;
+          if (isNaN(pubDate.getTime())) return false;
+          const t = pubDate.getTime();
+          if (sinceMs !== null && t < sinceMs) return false;
+          if (untilMs !== null && t > untilMs) return false;
+          return true;
         })
         .map((item) => ({
           url: item.url,
@@ -189,22 +224,24 @@ async function handleContent(req, res, config) {
         }));
 
       const asOf = new Date().toISOString();
-      const sinceIso = sinceDate.toISOString();
       const syncToken = encodeSyncToken(asOf);
+
+      const syncMeta = {
+        as_of: asOf,
+        sync_token: syncToken,
+        deleted_tracking: false,
+        counts: {
+          added: 0,
+          updated: updated.length,
+          deleted: 0,
+        },
+      };
+      if (sinceDate) syncMeta.since = sinceDate.toISOString();
+      if (untilDate) syncMeta.until = untilDate.toISOString();
 
       const body = {
         openfeeder_version: '1.0',
-        sync: {
-          since: sinceIso,
-          as_of: asOf,
-          sync_token: syncToken,
-          deleted_tracking: false,
-          counts: {
-            added: 0,
-            updated: updated.length,
-            deleted: 0,
-          },
-        },
+        sync: syncMeta,
         added: [],
         updated,
         deleted: [],
@@ -347,4 +384,4 @@ async function handleContent(req, res, config) {
   }
 }
 
-module.exports = { handleContent, encodeSyncToken, decodeSyncToken, parseSince };
+module.exports = { handleContent, encodeSyncToken, decodeSyncToken, parseSince, parseUntil };

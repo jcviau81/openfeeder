@@ -81,10 +81,12 @@ class OpenFeeder_Content_API {
 		$q = isset( $_GET['q'] ) ? sanitize_text_field( wp_unslash( $_GET['q'] ) ) : '';
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
 		$since_raw = isset( $_GET['since'] ) ? sanitize_text_field( wp_unslash( $_GET['since'] ) ) : '';
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$until_raw = isset( $_GET['until'] ) ? sanitize_text_field( wp_unslash( $_GET['until'] ) ) : '';
 
-		// Differential sync: ?since= without ?q= (search takes priority).
-		if ( ! empty( $since_raw ) && empty( $q ) ) {
-			$this->serve_diff_sync( $since_raw );
+		// Differential sync: ?since= and/or ?until= without ?q= (search takes priority).
+		if ( ( ! empty( $since_raw ) || ! empty( $until_raw ) ) && empty( $q ) ) {
+			$this->serve_diff_sync( $since_raw, $until_raw );
 			return;
 		}
 
@@ -142,30 +144,61 @@ class OpenFeeder_Content_API {
 	/**
 	 * Serve a differential sync response.
 	 *
-	 * @param string $since_raw Raw ?since= parameter value.
+	 * @param string $since_raw Raw ?since= parameter value (may be empty).
+	 * @param string $until_raw Raw ?until= parameter value (may be empty).
 	 */
-	private function serve_diff_sync( string $since_raw ) {
-		$since_ts = $this->parse_since( $since_raw );
-		if ( false === $since_ts ) {
-			$this->send_error( 'INVALID_PARAM', 'Invalid ?since= value. Provide an RFC3339 datetime or a valid sync_token.', 400 );
+	private function serve_diff_sync( string $since_raw, string $until_raw = '' ) {
+		$since_ts = false;
+		$until_ts = false;
+
+		if ( ! empty( $since_raw ) ) {
+			$since_ts = $this->parse_since( $since_raw );
+			if ( false === $since_ts ) {
+				$this->send_error( 'INVALID_PARAM', 'Invalid ?since= value. Provide an RFC3339 datetime or a valid sync_token.', 400 );
+				return;
+			}
+		}
+
+		if ( ! empty( $until_raw ) ) {
+			$until_ts = strtotime( $until_raw );
+			if ( false === $until_ts || $until_ts <= 0 ) {
+				$this->send_error( 'INVALID_PARAM', 'Invalid ?until= value. Provide an RFC3339 datetime.', 400 );
+				return;
+			}
+		}
+
+		if ( false !== $since_ts && false !== $until_ts && $until_ts < $since_ts ) {
+			$this->send_error( 'INVALID_PARAM', '?until= must be after ?since=.', 400 );
 			return;
 		}
 
-		$since_iso = gmdate( 'c', $since_ts );
+		$since_iso = false !== $since_ts ? gmdate( 'c', $since_ts ) : null;
+		$until_iso = false !== $until_ts ? gmdate( 'c', $until_ts ) : null;
 		$as_of     = gmdate( 'c' );
 
-		// Query posts modified since the given timestamp.
+		// Build date_query: closed range from ?since= to ?until=.
+		$date_conditions = array( 'relation' => 'AND' );
+		if ( null !== $since_iso ) {
+			$date_conditions[] = array(
+				'column' => 'post_modified_gmt',
+				'after'  => $since_iso,
+			);
+		}
+		if ( null !== $until_iso ) {
+			$date_conditions[] = array(
+				'column'    => 'post_modified_gmt',
+				'before'    => $until_iso,
+				'inclusive' => true,
+			);
+		}
+
+		// Query posts modified within the given date range.
 		$query_args = array(
 			'post_type'      => $this->get_allowed_post_types(),
 			'post_status'    => 'publish',
 			'has_password'   => false,
 			'posts_per_page' => -1,
-			'date_query'     => array(
-				array(
-					'column' => 'post_modified_gmt',
-					'after'  => $since_iso,
-				),
-			),
+			'date_query'     => $date_conditions,
 		);
 
 		$query = new WP_Query( $query_args );
@@ -196,9 +229,9 @@ class OpenFeeder_Content_API {
 					'summary'   => $excerpt,
 				);
 
-				// If post_date >= since → "added", else → "updated".
+				// If post_date >= since (or no since) → "added", else → "updated".
 				$post_date_ts = get_post_time( 'U', true, $post );
-				if ( $post_date_ts >= $since_ts ) {
+				if ( false === $since_ts || $post_date_ts >= $since_ts ) {
 					$added[] = $page_obj;
 				} else {
 					$updated[] = $page_obj;
@@ -215,30 +248,39 @@ class OpenFeeder_Content_API {
 		}
 
 		$deleted = array();
-		foreach ( $all_tombstones as $tomb ) {
-			$del_ts = isset( $tomb['deleted_at'] ) ? strtotime( $tomb['deleted_at'] ) : 0;
-			if ( $del_ts >= $since_ts ) {
-				$deleted[] = $tomb;
+		if ( false !== $since_ts ) {
+			foreach ( $all_tombstones as $tomb ) {
+				$del_ts = isset( $tomb['deleted_at'] ) ? strtotime( $tomb['deleted_at'] ) : 0;
+				if ( $del_ts >= $since_ts ) {
+					$deleted[] = $tomb;
+				}
 			}
 		}
 
 		$token = $this->make_sync_token( $as_of );
 
+		$sync_meta = array(
+			'as_of'      => $as_of,
+			'sync_token' => $token,
+			'counts'     => array(
+				'added'   => count( $added ),
+				'updated' => count( $updated ),
+				'deleted' => count( $deleted ),
+			),
+		);
+		if ( null !== $since_iso ) {
+			$sync_meta['since'] = $since_iso;
+		}
+		if ( null !== $until_iso ) {
+			$sync_meta['until'] = $until_iso;
+		}
+
 		$data = array(
 			'openfeeder_version' => '1.0',
-			'sync'               => array(
-				'since'      => $since_iso,
-				'as_of'      => $as_of,
-				'sync_token' => $token,
-				'counts'     => array(
-					'added'   => count( $added ),
-					'updated' => count( $updated ),
-					'deleted' => count( $deleted ),
-				),
-			),
-			'added'   => $added,
-			'updated' => $updated,
-			'deleted' => $deleted,
+			'sync'               => $sync_meta,
+			'added'              => $added,
+			'updated'            => $updated,
+			'deleted'            => $deleted,
 		);
 
 		$this->send_json( $data, 'MISS' );

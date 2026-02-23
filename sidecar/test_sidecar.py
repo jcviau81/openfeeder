@@ -123,6 +123,10 @@ def test_sync_token() -> None:
     ts_bad = parse_since("not-a-date-or-token")
     check(ts_bad is None, "parse_since returns None for garbage input")
 
+    # parse_since is reused for ?until= (RFC 3339 only — no sync_token)
+    ts_until = parse_since("2026-02-15T00:00:00Z")
+    check(ts_until is not None and ts_until > 0, "parse_since handles ?until= RFC3339")
+
 
 def test_tombstone_helpers() -> None:
     """Test tombstone helper functions."""
@@ -162,6 +166,85 @@ def test_tombstone_helpers() -> None:
     # Cleanup
     os.remove(test_path)
     os.rmdir(tmp)
+
+
+def test_indexer_get_pages_in_range() -> None:
+    """Test Indexer.get_pages_in_range() for ?until= and ?since=&until= modes."""
+    print("\nUnit: Indexer.get_pages_in_range()")
+
+    import time
+    import tempfile
+    import os
+
+    try:
+        from indexer import Indexer
+        from chunker import ParsedPage, Chunk
+    except ImportError as exc:
+        skip(f"indexer/chunker import failed ({exc}) — skipping")
+        return
+
+    tmp = tempfile.mkdtemp()
+    old = os.environ.get("CHROMA_PATH")
+    os.environ["CHROMA_PATH"] = os.path.join(tmp, "chroma")
+
+    try:
+        idx = Indexer(model_name="all-MiniLM-L6-v2")
+
+        # Index a page in the "past"
+        early_ts = time.time() - 7200  # 2 hours ago
+        old_page = ParsedPage(
+            url="https://example.com/old",
+            title="Old Article",
+            author=None,
+            published="2026-01-01T00:00:00Z",
+            updated=None,
+            language="en",
+            summary="An old article.",
+            chunks=[Chunk(text="Content of old article.", chunk_type="text", index=0)],
+        )
+        idx.index_page(old_page)
+
+        # Index a page in the "recent" past
+        idx.index_page(ParsedPage(
+            url="https://example.com/new",
+            title="New Article",
+            author=None,
+            published="2026-02-20T00:00:00Z",
+            updated=None,
+            language="en",
+            summary="A new article.",
+            chunks=[Chunk(text="Content of new article.", chunk_type="text", index=0)],
+        ))
+
+        # ?until= alone: all pages indexed up to now → should include both
+        added, updated = idx.get_pages_in_range(None, time.time() + 60)
+        check(len(added) + len(updated) == 2, "?until=future includes all pages")
+
+        # ?until= in the distant past → empty
+        added, updated = idx.get_pages_in_range(None, early_ts - 3600)
+        check(len(added) + len(updated) == 0, "?until=before_index returns empty")
+
+        # ?since= far in the future → empty
+        added, updated = idx.get_pages_in_range(time.time() + 86400, None)
+        check(len(added) + len(updated) == 0, "?since=future returns empty")
+
+        # ?since=0 → all pages
+        added_all, updated_all = idx.get_pages_in_range(0.0, None)
+        check(len(added_all) + len(updated_all) == 2, "?since=0 returns all pages")
+
+        # ?since=0&until=now+60 → all pages
+        added2, updated2 = idx.get_pages_in_range(0.0, time.time() + 60)
+        check(len(added2) + len(updated2) == 2, "?since=0&until=future includes all pages")
+
+    except Exception as exc:
+        check(False, f"Indexer.get_pages_in_range raised {exc!r}")
+    finally:
+        if old is None:
+            os.environ.pop("CHROMA_PATH", None)
+        else:
+            os.environ["CHROMA_PATH"] = old
+        import shutil
+        shutil.rmtree(tmp, ignore_errors=True)
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -274,6 +357,42 @@ def test_integration(base_url: str) -> None:
     check("updated" in data, "has updated array")
     check("deleted" in data, "has deleted array")
 
+    # GET /openfeeder?until= (upper-bound only)
+    print("\nIntegration: GET /openfeeder?until=2099-01-01T00:00:00Z")
+    r = httpx.get(
+        f"{base_url}/openfeeder",
+        params={"until": "2099-01-01T00:00:00Z"},
+        timeout=10,
+    )
+    check(r.status_code == 200, "?until= alone returns 200")
+    data_u = r.json()
+    check("sync" in data_u, "?until= response has sync envelope")
+    check("until" in data_u.get("sync", {}), "?until= included in sync meta")
+    check("since" not in data_u.get("sync", {}), "no 'since' when only ?until= is given")
+    check("added" in data_u, "?until= response has added array")
+
+    # GET /openfeeder?since=&until= (closed range)
+    print("\nIntegration: GET /openfeeder?since=2020-01-01T00:00:00Z&until=2099-01-01T00:00:00Z")
+    r = httpx.get(
+        f"{base_url}/openfeeder",
+        params={"since": "2020-01-01T00:00:00Z", "until": "2099-01-01T00:00:00Z"},
+        timeout=10,
+    )
+    check(r.status_code == 200, "?since=&until= returns 200")
+    data_range = r.json()
+    check("sync" in data_range, "range response has sync envelope")
+    check("since" in data_range.get("sync", {}), "range response has 'since' in sync")
+    check("until" in data_range.get("sync", {}), "range response has 'until' in sync")
+
+    # GET /openfeeder?since=&until= where until < since → 400
+    print("\nIntegration: GET /openfeeder?since=2030-01-01&until=2020-01-01 → 400")
+    r = httpx.get(
+        f"{base_url}/openfeeder",
+        params={"since": "2030-01-01T00:00:00Z", "until": "2020-01-01T00:00:00Z"},
+        timeout=10,
+    )
+    check(r.status_code == 400, "until < since returns 400")
+
     # Sync token round-trip
     print("\nIntegration: sync_token round-trip")
     token = data.get("sync", {}).get("sync_token", "")
@@ -313,6 +432,7 @@ def main() -> None:
     test_parse_iso_duration()
     test_sync_token()
     test_tombstone_helpers()
+    test_indexer_get_pages_in_range()
 
     # Integration tests — skip if sidecar not reachable
     base_url = os.environ.get("SIDECAR_URL", "http://localhost:8080")

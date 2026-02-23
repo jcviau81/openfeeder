@@ -218,6 +218,7 @@ async def content(
     url: str | None = Query(None, description="Relative path of the page to fetch"),
     q: str | None = Query(None, description="Semantic search query"),
     since: str | None = Query(None, description="RFC3339 datetime or sync_token for differential sync"),
+    until: str | None = Query(None, description="RFC3339 datetime upper bound for differential sync date range"),
     page: int = Query(1, ge=1, description="Page number (index mode)"),
     limit: int = Query(10, ge=1, le=50, description="Max chunks / items to return"),
     min_score: float = Query(0.0, ge=0.0, le=1.0, description="Minimum relevance score (0.0–1.0). Filters out chunks below threshold. Only applies to search (?q=) mode."),
@@ -229,6 +230,7 @@ async def content(
     - url param → chunks for that specific page.
     - q param → semantic search across all content.
     - since param → differential sync (returns only changed content).
+    - until param → upper date bound (combined with since for closed ranges).
     """
     start_time = time.time()
     bot_name, bot_family = detect_bot(request.headers.get("user-agent", ""))
@@ -250,31 +252,49 @@ async def content(
             "response_ms": int((time.time() - start_time) * 1000),
         })
 
-    # ── Differential sync mode (?since= without ?q=) ────────────────
-    if since and not q:
-        since_ts = parse_since(since)
-        if since_ts is None:
-            return _error_response("INVALID_PARAM", "Invalid ?since= value. Provide an RFC3339 datetime or a valid sync_token.", 400)
+    # ── Differential sync mode (?since= and/or ?until= without ?q=) ─────
+    if (since or until) and not q:
+        since_ts: float | None = None
+        until_ts: float | None = None
 
-        added, updated = indexer.get_pages_since(since_ts)
-        deleted = get_tombstones_since(since_ts)
+        if since:
+            since_ts = parse_since(since)
+            if since_ts is None:
+                return _error_response("INVALID_PARAM", "Invalid ?since= value. Provide an RFC3339 datetime or a valid sync_token.", 400)
+
+        if until:
+            until_ts = parse_since(until)
+            if until_ts is None:
+                return _error_response("INVALID_PARAM", "Invalid ?until= value. Provide an RFC3339 datetime.", 400)
+
+        if since_ts is not None and until_ts is not None and until_ts < since_ts:
+            return _error_response("INVALID_PARAM", "?until= must be after ?since=.", 400)
+
+        added, updated = indexer.get_pages_in_range(since_ts, until_ts)
+        deleted = get_tombstones_since(since_ts) if since_ts is not None else []
 
         as_of = datetime.now(timezone.utc).isoformat()
-        since_iso = datetime.fromtimestamp(since_ts, tz=timezone.utc).isoformat()
+        since_iso = datetime.fromtimestamp(since_ts, tz=timezone.utc).isoformat() if since_ts is not None else None
+        until_iso = datetime.fromtimestamp(until_ts, tz=timezone.utc).isoformat() if until_ts is not None else None
         token = encode_sync_token(as_of)
+
+        sync_meta: dict = {
+            "as_of": as_of,
+            "sync_token": token,
+            "counts": {
+                "added": len(added),
+                "updated": len(updated),
+                "deleted": len(deleted),
+            },
+        }
+        if since_iso is not None:
+            sync_meta["since"] = since_iso
+        if until_iso is not None:
+            sync_meta["until"] = until_iso
 
         body = {
             "openfeeder_version": "1.0",
-            "sync": {
-                "since": since_iso,
-                "as_of": as_of,
-                "sync_token": token,
-                "counts": {
-                    "added": len(added),
-                    "updated": len(updated),
-                    "deleted": len(deleted),
-                },
-            },
+            "sync": sync_meta,
             "added": added,
             "updated": updated,
             "deleted": deleted,
