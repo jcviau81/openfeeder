@@ -11,7 +11,7 @@ services:
     ports:
       - "${PORT:-8080}:8080"
     environment:
-      - SITE_URL=${SITE_URL:-https://snaf.foo/sketchynews}
+      - SITE_URL=${SITE_URL:-https://sketchynews.snaf.foo}
       - CRAWL_INTERVAL=${CRAWL_INTERVAL:-3600}
       - MAX_PAGES=${MAX_PAGES:-500}
       - PORT=8080
@@ -23,6 +23,11 @@ services:
       - ANALYTICS_API_KEY=${ANALYTICS_API_KEY:-}
     volumes:
       - openfeeder_data:/data
+      - ./main.py:/app/main.py
+      - ./indexer.py:/app/indexer.py
+      - ./chunker.py:/app/chunker.py
+      - ./crawler.py:/app/crawler.py
+      - ./analytics.py:/app/analytics.py
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "python", "-c", "import httpx; httpx.get('http://localhost:8080/healthz').raise_for_status()"]
