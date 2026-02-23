@@ -77,6 +77,16 @@ class OpenFeeder_Content_API {
 
 		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
 		$raw_url = isset( $_GET['url'] ) ? sanitize_text_field( wp_unslash( $_GET['url'] ) ) : '';
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$q = isset( $_GET['q'] ) ? sanitize_text_field( wp_unslash( $_GET['q'] ) ) : '';
+		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
+		$since_raw = isset( $_GET['since'] ) ? sanitize_text_field( wp_unslash( $_GET['since'] ) ) : '';
+
+		// Differential sync: ?since= without ?q= (search takes priority).
+		if ( ! empty( $since_raw ) && empty( $q ) ) {
+			$this->serve_diff_sync( $since_raw );
+			return;
+		}
 
 		if ( ! empty( $raw_url ) ) {
 			$url = $this->sanitize_url_param( $raw_url );
@@ -89,6 +99,149 @@ class OpenFeeder_Content_API {
 		} else {
 			$this->serve_index();
 		}
+	}
+
+	/**
+	 * Parse a ?since= value — accepts RFC 3339 datetime or a base64 sync_token.
+	 *
+	 * @param string $raw Raw since parameter value.
+	 * @return int|false Unix timestamp or false on failure.
+	 */
+	private function parse_since( string $raw ) {
+		// Try RFC 3339 first.
+		$ts = strtotime( $raw );
+		if ( false !== $ts && $ts > 0 ) {
+			return $ts;
+		}
+
+		// Try sync_token (base64-encoded JSON with "t" key).
+		$decoded = base64_decode( $raw, true );
+		if ( false !== $decoded ) {
+			$payload = json_decode( $decoded, true );
+			if ( is_array( $payload ) && isset( $payload['t'] ) ) {
+				$ts = strtotime( $payload['t'] );
+				if ( false !== $ts && $ts > 0 ) {
+					return $ts;
+				}
+			}
+		}
+
+		return false;
+	}
+
+	/**
+	 * Generate a sync_token from a timestamp.
+	 *
+	 * @param string $as_of_iso ISO 8601 timestamp.
+	 * @return string Base64-encoded sync_token.
+	 */
+	private function make_sync_token( string $as_of_iso ): string {
+		return base64_encode( wp_json_encode( array( 't' => $as_of_iso ) ) );
+	}
+
+	/**
+	 * Serve a differential sync response.
+	 *
+	 * @param string $since_raw Raw ?since= parameter value.
+	 */
+	private function serve_diff_sync( string $since_raw ) {
+		$since_ts = $this->parse_since( $since_raw );
+		if ( false === $since_ts ) {
+			$this->send_error( 'INVALID_PARAM', 'Invalid ?since= value. Provide an RFC3339 datetime or a valid sync_token.', 400 );
+			return;
+		}
+
+		$since_iso = gmdate( 'c', $since_ts );
+		$as_of     = gmdate( 'c' );
+
+		// Query posts modified since the given timestamp.
+		$query_args = array(
+			'post_type'      => $this->get_allowed_post_types(),
+			'post_status'    => 'publish',
+			'has_password'   => false,
+			'posts_per_page' => -1,
+			'date_query'     => array(
+				array(
+					'column' => 'post_modified_gmt',
+					'after'  => $since_iso,
+				),
+			),
+		);
+
+		$query = new WP_Query( $query_args );
+
+		$added   = array();
+		$updated = array();
+
+		if ( $query->have_posts() ) {
+			while ( $query->have_posts() ) {
+				$query->the_post();
+				$post = get_post();
+
+				$rel_url = wp_make_link_relative( get_permalink( $post ) );
+				if ( $this->is_excluded_path( $rel_url ) ) {
+					continue;
+				}
+
+				$excerpt = $post->post_excerpt;
+				if ( empty( $excerpt ) ) {
+					$excerpt = wp_trim_words( wp_strip_all_tags( $post->post_content ), 30, '...' );
+				}
+
+				$page_obj = array(
+					'url'       => $rel_url,
+					'title'     => get_the_title( $post ),
+					'published' => get_post_time( 'c', true, $post ),
+					'updated'   => get_post_modified_time( 'c', true, $post ),
+					'summary'   => $excerpt,
+				);
+
+				// If post_date >= since → "added", else → "updated".
+				$post_date_ts = get_post_time( 'U', true, $post );
+				if ( $post_date_ts >= $since_ts ) {
+					$added[] = $page_obj;
+				} else {
+					$updated[] = $page_obj;
+				}
+			}
+			wp_reset_postdata();
+		}
+
+		// Get tombstones.
+		$tombstones_raw = get_option( 'openfeeder_tombstones', '[]' );
+		$all_tombstones = json_decode( $tombstones_raw, true );
+		if ( ! is_array( $all_tombstones ) ) {
+			$all_tombstones = array();
+		}
+
+		$deleted = array();
+		foreach ( $all_tombstones as $tomb ) {
+			$del_ts = isset( $tomb['deleted_at'] ) ? strtotime( $tomb['deleted_at'] ) : 0;
+			if ( $del_ts >= $since_ts ) {
+				$deleted[] = $tomb;
+			}
+		}
+
+		$token = $this->make_sync_token( $as_of );
+
+		$data = array(
+			'openfeeder_version' => '1.0',
+			'sync'               => array(
+				'since'      => $since_iso,
+				'as_of'      => $as_of,
+				'sync_token' => $token,
+				'counts'     => array(
+					'added'   => count( $added ),
+					'updated' => count( $updated ),
+					'deleted' => count( $deleted ),
+				),
+			),
+			'added'   => $added,
+			'updated' => $updated,
+			'deleted' => $deleted,
+		);
+
+		$this->send_json( $data, 'MISS' );
 	}
 
 	/**

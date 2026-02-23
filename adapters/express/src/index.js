@@ -131,7 +131,8 @@ function openFeederMiddleware(config) {
       // Determine endpoint type for analytics
       const q = req.query && req.query.q;
       const url = req.query && req.query.url;
-      const endpoint = q ? 'search' : url ? 'fetch' : 'index';
+      const since = req.query && req.query.since;
+      const endpoint = q ? 'search' : since ? 'sync' : url ? 'fetch' : 'index';
       trackAfterResponse(req, res, endpoint, Date.now());
 
       return handleContent(req, res, config);

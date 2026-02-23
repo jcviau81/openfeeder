@@ -153,6 +153,48 @@ function openfeeder_invalidate_on_delete( $post_id ) {
 add_action( 'trashed_post', 'openfeeder_invalidate_on_delete' );
 add_action( 'deleted_post', 'openfeeder_invalidate_on_delete' );
 
+/**
+ * Record a tombstone when a post is trashed or deleted (for differential sync).
+ *
+ * @param int $post_id Post ID.
+ */
+function openfeeder_record_tombstone( $post_id ) {
+	if ( wp_is_post_revision( $post_id ) || wp_is_post_autosave( $post_id ) ) {
+		return;
+	}
+
+	$post = get_post( $post_id );
+	if ( ! $post || 'publish' !== $post->post_status ) {
+		// For trashed_post the status is still 'publish' at hook time.
+		// For deleted_post it may differ — record anyway if we can get permalink.
+	}
+
+	$permalink = get_permalink( $post_id );
+	if ( empty( $permalink ) ) {
+		return;
+	}
+
+	$tombstones = get_option( 'openfeeder_tombstones', '[]' );
+	$tombstones = json_decode( $tombstones, true );
+	if ( ! is_array( $tombstones ) ) {
+		$tombstones = array();
+	}
+
+	$tombstones[] = array(
+		'url'        => $permalink,
+		'deleted_at' => gmdate( 'c' ),
+	);
+
+	// FIFO cap at 1000 entries.
+	if ( count( $tombstones ) > 1000 ) {
+		$tombstones = array_slice( $tombstones, -1000 );
+	}
+
+	update_option( 'openfeeder_tombstones', wp_json_encode( $tombstones ), false );
+}
+add_action( 'trashed_post', 'openfeeder_record_tombstone', 5 );
+add_action( 'deleted_post', 'openfeeder_record_tombstone', 5 );
+
 // ── Sidecar webhook notifications ─────────────────────────────────────────────
 
 /**

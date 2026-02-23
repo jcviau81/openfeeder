@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import time
 from dataclasses import dataclass
 
 import chromadb
@@ -29,6 +30,8 @@ META_LANGUAGE = "language"
 META_SUMMARY = "summary"
 META_CHUNK_TYPE = "chunk_type"
 META_CHUNK_INDEX = "chunk_index"
+META_INDEXED_AT = "indexed_at"
+META_FIRST_INDEXED_AT = "first_indexed_at"
 
 COLLECTION_NAME = "openfeeder_chunks"
 PAGES_COLLECTION = "openfeeder_pages"
@@ -73,6 +76,16 @@ class Indexer:
         Index a parsed page. Replaces any existing chunks for this URL.
         Returns the number of chunks indexed.
         """
+        now = time.time()
+
+        # Preserve first_indexed_at from existing page metadata
+        existing_meta = self.get_page_meta(page.url)
+        first_indexed_at = (
+            existing_meta.get(META_FIRST_INDEXED_AT, now)
+            if existing_meta
+            else now
+        )
+
         # Remove old chunks for this URL
         self._delete_page(page.url)
 
@@ -102,6 +115,7 @@ class Indexer:
                 META_SUMMARY: page.summary[:500],
                 META_CHUNK_TYPE: chunk.chunk_type,
                 META_CHUNK_INDEX: idx,
+                META_INDEXED_AT: now,
             })
 
         self._chunks_col.upsert(
@@ -125,6 +139,8 @@ class Indexer:
                 META_LANGUAGE: page.language,
                 META_SUMMARY: page.summary[:500],
                 "chunk_count": len(page.chunks),
+                META_FIRST_INDEXED_AT: first_indexed_at,
+                META_INDEXED_AT: now,
             }],
         )
 
@@ -268,6 +284,38 @@ class Indexer:
         start = (page - 1) * limit
         end = start + limit
         return items[start:end], total
+
+    def get_pages_since(self, since_ts: float) -> tuple[list[dict], list[dict]]:
+        """
+        Return pages changed since *since_ts* (Unix timestamp), split into
+        (added, updated) lists.  A page is "added" if its first_indexed_at >= since_ts,
+        otherwise "updated".
+        """
+        all_pages = self._pages_col.get(include=["metadatas"])
+        if not all_pages["ids"]:
+            return [], []
+
+        added: list[dict] = []
+        updated: list[dict] = []
+
+        for meta in all_pages["metadatas"]:
+            indexed_at = meta.get(META_INDEXED_AT, 0)
+            if indexed_at < since_ts:
+                continue
+            page_obj = {
+                "url": meta.get(META_URL, ""),
+                "title": meta.get(META_TITLE, ""),
+                "published": meta.get(META_PUBLISHED, "") or None,
+                "updated": meta.get(META_UPDATED, "") or None,
+                "summary": meta.get(META_SUMMARY, ""),
+            }
+            first = meta.get(META_FIRST_INDEXED_AT, 0)
+            if first >= since_ts:
+                added.append(page_obj)
+            else:
+                updated.append(page_obj)
+
+        return added, updated
 
     # ------------------------------------------------------------------
     # Helpers

@@ -101,6 +101,45 @@ function isExcludedPath(path, excludePaths) {
 }
 
 /**
+ * Encode an ISO timestamp into a sync_token.
+ * @param {string} asOfIso
+ * @returns {string}
+ */
+function encodeSyncToken(asOfIso) {
+  return Buffer.from(JSON.stringify({ t: asOfIso })).toString('base64');
+}
+
+/**
+ * Decode a sync_token to a Date, or return null on failure.
+ * @param {string} token
+ * @returns {Date|null}
+ */
+function decodeSyncToken(token) {
+  try {
+    const payload = JSON.parse(Buffer.from(token, 'base64').toString('utf8'));
+    if (payload && payload.t) {
+      const d = new Date(payload.t);
+      if (!isNaN(d.getTime())) return d;
+    }
+  } catch { /* ignore */ }
+  return null;
+}
+
+/**
+ * Parse a ?since= value — accepts RFC 3339 datetime or sync_token.
+ * @param {string} raw
+ * @returns {Date|null}
+ */
+function parseSince(raw) {
+  if (!raw) return null;
+  // Try RFC 3339 first
+  const d = new Date(raw);
+  if (!isNaN(d.getTime())) return d;
+  // Try sync_token
+  return decodeSyncToken(raw);
+}
+
+/**
  * @param {import('express').Request} req
  * @param {import('express').Response} res
  * @param {object} config
@@ -112,6 +151,71 @@ async function handleContent(req, res, config) {
     const limitParam = req.query.limit;
     // Sanitize ?q=: limit to 200 chars, strip HTML
     const query = (req.query.q || '').slice(0, 200).replace(/<[^>]*>/g, '').trim();
+    const sinceRaw = req.query.since || '';
+
+    // ── Differential sync mode (?since= without ?q=) ────────────────
+    if (sinceRaw && !query) {
+      const sinceDate = parseSince(sinceRaw);
+      if (!sinceDate) {
+        return sendError(res, 'INVALID_PARAM', 'Invalid ?since= value. Provide an RFC3339 datetime or a valid sync_token.', 400);
+      }
+
+      const sinceMs = sinceDate.getTime();
+
+      // Get all items and filter by published date (mtime proxy)
+      let rawItems, total;
+      try {
+        ({ items: rawItems, total } = await config.getItems(1, 10000));
+      } catch (err) {
+        return sendError(res, 'INTERNAL_ERROR', 'Failed to fetch items.', 500);
+      }
+
+      // Filter excluded paths
+      const pathFiltered = config.excludePaths
+        ? rawItems.filter((item) => !isExcludedPath(item.url, config.excludePaths))
+        : rawItems;
+
+      // Items where published >= since → updated (can't distinguish added vs updated for static files)
+      const updated = pathFiltered
+        .filter((item) => {
+          const pubDate = new Date(item.published || 0);
+          return !isNaN(pubDate.getTime()) && pubDate.getTime() >= sinceMs;
+        })
+        .map((item) => ({
+          url: item.url,
+          title: item.title,
+          published: item.published,
+          summary: summarise(item.content || ''),
+        }));
+
+      const asOf = new Date().toISOString();
+      const sinceIso = sinceDate.toISOString();
+      const syncToken = encodeSyncToken(asOf);
+
+      const body = {
+        openfeeder_version: '1.0',
+        sync: {
+          since: sinceIso,
+          as_of: asOf,
+          sync_token: syncToken,
+          deleted_tracking: false,
+          counts: {
+            added: 0,
+            updated: updated.length,
+            deleted: 0,
+          },
+        },
+        added: [],
+        updated,
+        deleted: [],
+      };
+
+      res._openfeederResults = updated.length;
+      return res.set({
+        ...HEADERS,
+        ...getRateLimitHeaders(),
+      }).status(200).json(body);
+    }
 
     // ── Single page mode ──────────────────────────────────────────────────
     if (urlParam) {
@@ -243,4 +347,4 @@ async function handleContent(req, res, config) {
   }
 }
 
-module.exports = { handleContent };
+module.exports = { handleContent, encodeSyncToken, decodeSyncToken, parseSince };

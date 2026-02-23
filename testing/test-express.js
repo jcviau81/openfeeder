@@ -403,6 +403,80 @@ async function runTests() {
     assert(res.status === 200, "status 200 (no 500 from analytics)");
   }
 
+  // ── 14. Differential Sync: ?since= with past date ──────────────────
+  console.log("\nDifferential Sync: GET /openfeeder?since=2020-01-01T00:00:00Z");
+  {
+    const res = await httpGet(
+      "/openfeeder?since=2020-01-01T00:00:00Z"
+    );
+    assert(res.status === 200, "status 200");
+    assert(res.body.openfeeder_version === "1.0", 'openfeeder_version: "1.0"');
+    assert(res.body.sync !== undefined, "has sync envelope");
+    assert(typeof res.body.sync.sync_token === "string", "has sync_token");
+    assert(typeof res.body.sync.since === "string", "has since field");
+    assert(typeof res.body.sync.as_of === "string", "has as_of field");
+    assert(res.body.sync.counts !== undefined, "has counts");
+    assert(Array.isArray(res.body.added), "has added array");
+    assert(Array.isArray(res.body.updated), "has updated array");
+    assert(Array.isArray(res.body.deleted), "has deleted array");
+    assert(res.body.sync.deleted_tracking === false, "deleted_tracking is false (static files)");
+    // All sample items published after 2020 → should appear in updated
+    assert(res.body.updated.length > 0, "updated array not empty");
+  }
+
+  // ── 15. Differential Sync: ?since= with future date → empty ────────
+  console.log("\nDifferential Sync: GET /openfeeder?since=2099-01-01T00:00:00Z");
+  {
+    const res = await httpGet(
+      "/openfeeder?since=2099-01-01T00:00:00Z"
+    );
+    assert(res.status === 200, "status 200");
+    assert(res.body.sync.counts.updated === 0, "no updated items (future date)");
+    assert(res.body.updated.length === 0, "updated array is empty");
+  }
+
+  // ── 16. Differential Sync: sync_token round-trip ───────────────────
+  console.log("\nDifferential Sync: sync_token round-trip");
+  {
+    // First request → get a sync_token
+    const res1 = await httpGet(
+      "/openfeeder?since=2020-01-01T00:00:00Z"
+    );
+    assert(res1.status === 200, "first request: status 200");
+    const token = res1.body.sync.sync_token;
+    assert(typeof token === "string" && token.length > 0, "got sync_token");
+
+    // Second request using the sync_token
+    const res2 = await httpGet(`/openfeeder?since=${encodeURIComponent(token)}`);
+    assert(res2.status === 200, "second request (with token): status 200");
+    assert(res2.body.sync !== undefined, "second response has sync envelope");
+    // as_of of second request should be >= as_of of first (they're close together)
+    assert(
+      new Date(res2.body.sync.since).getTime() >= new Date(res1.body.sync.as_of).getTime() - 1000,
+      "token-based since matches original as_of"
+    );
+  }
+
+  // ── 17. Differential Sync: ?since= + ?q= → search wins ────────────
+  console.log("\nDifferential Sync: ?since= + ?q= → search wins");
+  {
+    const res = await httpGet(
+      "/openfeeder?since=2020-01-01T00:00:00Z&q=test"
+    );
+    assert(res.status === 200, "status 200");
+    // Should be a search result (index-like), not a sync result
+    assert(res.body.sync === undefined, "no sync envelope (search mode)");
+    assert(Array.isArray(res.body.items), "has items (search mode)");
+  }
+
+  // ── 18. Differential Sync: invalid ?since= → error ────────────────
+  console.log("\nDifferential Sync: invalid ?since= → error");
+  {
+    const res = await httpGet("/openfeeder?since=not-a-date");
+    assert(res.status === 400, "status 400");
+    assert(res.body.error && res.body.error.code === "INVALID_PARAM", "error code INVALID_PARAM");
+  }
+
   // ── Summary ───────────────────────────────────────────────────────────
   console.log(`\n${"=".repeat(55)}`);
   console.log(`Results: ${passed} passed, ${failed} failed, ${passed + failed} total`);

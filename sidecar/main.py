@@ -23,6 +23,7 @@ import os
 import sys
 import time
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from typing import Literal
 from urllib.parse import urlparse
 
@@ -36,6 +37,13 @@ from analytics import Analytics, detect_bot
 from chunker import chunk_html
 from crawler import crawl
 from indexer import Indexer
+from sync_utils import (
+    add_tombstone,
+    encode_sync_token,
+    get_tombstones_since,
+    _load_tombstones,
+    parse_since,
+)
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -124,6 +132,7 @@ async def lifespan(app: FastAPI):
     global indexer, scheduler
 
     indexer = Indexer(model_name=EMBEDDING_MODEL)
+    _load_tombstones()
 
     # Initial crawl in background so the server starts responding immediately
     asyncio.create_task(run_crawl())
@@ -180,7 +189,7 @@ async def discovery(request: Request):
             "endpoint": "/openfeeder",
             "type": "paginated",
         },
-        "capabilities": ["search", "embeddings"],
+        "capabilities": ["search", "embeddings", "diff-sync"],
         "contact": None,
     }
     bot_name, bot_family = detect_bot(request.headers.get("user-agent", ""))
@@ -208,6 +217,7 @@ async def content(
     request: Request,
     url: str | None = Query(None, description="Relative path of the page to fetch"),
     q: str | None = Query(None, description="Semantic search query"),
+    since: str | None = Query(None, description="RFC3339 datetime or sync_token for differential sync"),
     page: int = Query(1, ge=1, description="Page number (index mode)"),
     limit: int = Query(10, ge=1, le=50, description="Max chunks / items to return"),
     min_score: float = Query(0.0, ge=0.0, le=1.0, description="Minimum relevance score (0.0–1.0). Filters out chunks below threshold. Only applies to search (?q=) mode."),
@@ -218,6 +228,7 @@ async def content(
     - No params or just page/limit → paginated index of all content.
     - url param → chunks for that specific page.
     - q param → semantic search across all content.
+    - since param → differential sync (returns only changed content).
     """
     start_time = time.time()
     bot_name, bot_family = detect_bot(request.headers.get("user-agent", ""))
@@ -238,6 +249,40 @@ async def content(
             "cached": is_cached,
             "response_ms": int((time.time() - start_time) * 1000),
         })
+
+    # ── Differential sync mode (?since= without ?q=) ────────────────
+    if since and not q:
+        since_ts = parse_since(since)
+        if since_ts is None:
+            return _error_response("INVALID_PARAM", "Invalid ?since= value. Provide an RFC3339 datetime or a valid sync_token.", 400)
+
+        added, updated = indexer.get_pages_since(since_ts)
+        deleted = get_tombstones_since(since_ts)
+
+        as_of = datetime.now(timezone.utc).isoformat()
+        since_iso = datetime.fromtimestamp(since_ts, tz=timezone.utc).isoformat()
+        token = encode_sync_token(as_of)
+
+        body = {
+            "openfeeder_version": "1.0",
+            "sync": {
+                "since": since_iso,
+                "as_of": as_of,
+                "sync_token": token,
+                "counts": {
+                    "added": len(added),
+                    "updated": len(updated),
+                    "deleted": len(deleted),
+                },
+            },
+            "added": added,
+            "updated": updated,
+            "deleted": deleted,
+        }
+
+        total = len(added) + len(updated) + len(deleted)
+        await _track("sync", total, cached)
+        return JSONResponse(content=body, headers={"X-OpenFeeder-Cache": "MISS"})
 
     # ── Index mode (no url) ──────────────────────────────────────────
     if url is None and q is None:
@@ -378,6 +423,7 @@ async def _process_update(action: str, urls: list[str]) -> tuple[int, list[str]]
         try:
             if action == "delete":
                 indexer.delete_page(full_url)
+                add_tombstone(full_url)
                 logger.info("Webhook: deleted %s", full_url)
                 processed += 1
 

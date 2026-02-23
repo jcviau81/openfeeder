@@ -92,6 +92,78 @@ def test_parse_iso_duration() -> None:
     check(parse_iso_duration("") == "", 'empty → empty string')
 
 
+def test_sync_token() -> None:
+    """Test sync_token encode/decode round-trip."""
+    print("\nUnit: sync_token encode/decode")
+
+    from sync_utils import encode_sync_token, decode_sync_token, parse_since
+
+    # Encode a known timestamp
+    iso = "2026-02-20T00:00:00+00:00"
+    token = encode_sync_token(iso)
+    check(isinstance(token, str) and len(token) > 0, "encode returns non-empty string")
+
+    # Decode it back
+    ts = decode_sync_token(token)
+    check(ts is not None, "decode returns a timestamp")
+
+    import base64, json
+    payload = json.loads(base64.b64decode(token))
+    check(payload.get("t") == iso, 'token payload has correct "t" field')
+
+    # parse_since with RFC 3339
+    ts_rfc = parse_since("2026-02-20T00:00:00Z")
+    check(ts_rfc is not None and ts_rfc > 0, "parse_since handles RFC 3339")
+
+    # parse_since with sync_token
+    ts_token = parse_since(token)
+    check(ts_token is not None and ts_token > 0, "parse_since handles sync_token")
+
+    # parse_since with garbage
+    ts_bad = parse_since("not-a-date-or-token")
+    check(ts_bad is None, "parse_since returns None for garbage input")
+
+
+def test_tombstone_helpers() -> None:
+    """Test tombstone helper functions."""
+    print("\nUnit: tombstone helpers")
+
+    import sync_utils
+    import tempfile, os
+
+    # Override tombstone path for testing
+    tmp = tempfile.mkdtemp()
+    test_path = os.path.join(tmp, "tombstones.json")
+    sync_utils.TOMBSTONE_PATH = test_path
+    sync_utils._tombstones = {}
+
+    # Add a tombstone
+    sync_utils.add_tombstone("https://example.com/deleted-page", test_path)
+    check(len(sync_utils._tombstones) == 1, "tombstone added")
+
+    # Get tombstones since a past date
+    results = sync_utils.get_tombstones_since(0.0)
+    check(len(results) == 1, "get_tombstones_since returns 1 result")
+    check(results[0]["url"] == "https://example.com/deleted-page", "tombstone URL matches")
+
+    # Get tombstones since a future date → empty
+    import time
+    results_future = sync_utils.get_tombstones_since(time.time() + 86400)
+    check(len(results_future) == 0, "get_tombstones_since returns 0 for future date")
+
+    # Verify file was written
+    check(os.path.exists(test_path), "tombstones file created")
+
+    # Load from disk
+    sync_utils._tombstones = {}
+    sync_utils._load_tombstones(test_path)
+    check(len(sync_utils._tombstones) == 1, "tombstones loaded from disk")
+
+    # Cleanup
+    os.remove(test_path)
+    os.rmdir(tmp)
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # Integration Tests (skip if sidecar not reachable)
 # ═══════════════════════════════════════════════════════════════════════════
@@ -187,6 +259,36 @@ def test_integration(base_url: str) -> None:
         data = r.json()
         check("status" in data, "update response has status field")
 
+    # GET /openfeeder?since= (differential sync)
+    print("\nIntegration: GET /openfeeder?since=2020-01-01T00:00:00Z")
+    r = httpx.get(
+        f"{base_url}/openfeeder",
+        params={"since": "2020-01-01T00:00:00Z"},
+        timeout=10,
+    )
+    check(r.status_code == 200, "diff sync returns 200")
+    data = r.json()
+    check("sync" in data, "has sync envelope")
+    check("sync_token" in data.get("sync", {}), "has sync_token")
+    check("added" in data, "has added array")
+    check("updated" in data, "has updated array")
+    check("deleted" in data, "has deleted array")
+
+    # Sync token round-trip
+    print("\nIntegration: sync_token round-trip")
+    token = data.get("sync", {}).get("sync_token", "")
+    if token:
+        r2 = httpx.get(
+            f"{base_url}/openfeeder",
+            params={"since": token},
+            timeout=10,
+        )
+        check(r2.status_code == 200, "token-based request returns 200")
+        data2 = r2.json()
+        check("sync" in data2, "token-based response has sync envelope")
+    else:
+        skip("no sync_token to test round-trip")
+
     # POST /crawl
     print("\nIntegration: POST /crawl")
     r = httpx.post(f"{base_url}/crawl", timeout=10)
@@ -209,6 +311,8 @@ def main() -> None:
     # Unit tests — always run
     test_detect_bot()
     test_parse_iso_duration()
+    test_sync_token()
+    test_tombstone_helpers()
 
     # Integration tests — skip if sidecar not reachable
     base_url = os.environ.get("SIDECAR_URL", "http://localhost:8080")
