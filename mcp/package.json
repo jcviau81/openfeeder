@@ -1,0 +1,27 @@
+{
+  "name": "openfeeder-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for OpenFeeder — structured LLM content protocol",
+  "type": "module",
+  "bin": {
+    "openfeeder-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "dev": "ts-node --esm src/index.ts"
+  },
+  "keywords": ["openfeeder", "mcp", "llm", "structured-content"],
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.26.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "ts-node": "^10.9.0",
+    "@types/node": "^20.0.0"
+  }
+}
