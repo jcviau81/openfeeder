@@ -60,6 +60,34 @@ The content endpoint path is defined in the discovery document. The **recommende
 | `page` | integer | No | Page number for paginated index (default: 1) |
 | `limit` | integer | No | Max chunks to return (default: 10, max: 50) |
 | `min_score` | float | No | Minimum relevance score 0.0–1.0 (default: 0.0). Filters out chunks below threshold. Only applies when `?q=` is set. Higher = more precise, fewer results. |
+| `type` | string | No | Filter index to pages of a specific JSON-LD type. Valid values: `recipe`, `article`, `product`, `event`, `page`. If omitted, all types are returned. *(implementation: planned)* |
+
+**`?type=` — JSON-LD type filter** *(implementation: planned)*
+
+Filters the content index to pages whose JSON-LD `@type` matches the specified value. Useful for sites with mixed content (e.g. a food blog with recipes, articles, and product reviews).
+
+```
+GET /openfeeder?type=recipe
+GET /openfeeder?type=article
+GET /openfeeder?type=product
+```
+
+Can be combined with `?q=` for typed semantic search:
+
+```
+GET /openfeeder?q=chicken&type=recipe
+GET /openfeeder?q=wireless+headphones&type=product
+```
+
+| `type` value | Matches JSON-LD `@type` |
+|--------------|-------------------------|
+| `recipe` | `Recipe` |
+| `article` | `Article`, `NewsArticle`, `BlogPosting` |
+| `product` | `Product` |
+| `event` | `Event` |
+| `page` | `WebPage` |
+
+When `?type=` is not specified, all content types are returned (current behaviour). Pages without a detected JSON-LD type are always included unless `?type=` is set.
 
 ### 3.2 Response Schema
 

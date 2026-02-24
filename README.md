@@ -94,6 +94,28 @@ OpenFeeder:   1,085 bytes  ← clean JSON, just the content
 18x smaller. Zero noise.
 ```
 
+**JSON-LD output example — a Recipe page:**
+```json
+{
+  "schema": "openfeeder/1.0",
+  "url": "/recipes/classic-roast-chicken",
+  "title": "Classic Roast Chicken",
+  "type": "recipe",
+  "published": "2024-03-15",
+  "summary": "A perfectly crispy roast chicken with herbs and garlic butter.",
+  "meta": {
+    "prepTime": "20 min",
+    "cookTime": "1h 30 min",
+    "totalTime": "1h 50 min",
+    "rating": 4.8,
+    "ingredients": ["1 whole chicken (4 lb)", "2 tbsp olive oil", "4 cloves garlic", "1 tbsp fresh thyme", "..."],
+    "instructions": ["Preheat oven to 425°F", "Pat chicken dry with paper towels", "Rub with olive oil and season generously", "..."]
+  }
+}
+```
+
+Structured arrays. Typed fields. Zero prose overhead. An LLM can answer *"what are the ingredients?"* without reading a sentence.
+
 *SketchyNews is a lean Astro static site — real-world CMS sites are much larger. BBC News: 30x. Ars Technica: 39x. WordPress default theme: 22x. See benchmark below.*
 
 **Cross-site benchmark — measured Feb 23, 2026 using real LLM bot User-Agents (GPTBot, ClaudeBot, PerplexityBot):**
@@ -181,6 +203,30 @@ LLM providers and AI agents will naturally gravitate toward OpenFeeder-compatibl
 
 ### 🤝 Control over how AI sees you
 Today, LLMs scrape your site and interpret it however they can. With OpenFeeder, **you decide what they get** — the right summary, the right metadata, the right context. No more AI hallucinating your product prices or misquoting your articles.
+
+---
+
+## JSON-LD Native — Structured Data, Not Just Text
+
+Most web content reaches LLMs as a wall of text — stripped HTML with no structure, no types, no fields. OpenFeeder changes that for sites that already have the data in a machine-readable form.
+
+If your site uses [Schema.org](https://schema.org/) JSON-LD (the `<script type="application/ld+json">` blocks in your `<head>`), OpenFeeder reads that structured data directly and exposes it to LLMs as typed, fielded output — not prose.
+
+*"If your site already uses Schema.org, OpenFeeder delivers that structure directly to LLMs — no parsing, no guessing."*
+
+### Supported types
+
+| `@type` | Key fields exposed |
+|---------|--------------------|
+| `Recipe` | `ingredients`, `instructions`, `prepTime`, `cookTime`, `totalTime`, `rating` |
+| `Article` / `NewsArticle` / `BlogPosting` | `author`, `published`, `modified`, `articleSection`, `keywords` |
+| `Product` | `brand`, `price`, `currency`, `availability`, `rating` |
+| `Event` | `location`, `startDate`, `endDate` |
+| `WebPage` | `author`, `published`, `description` |
+
+A recipe site with JSON-LD doesn't get a paragraph that starts *"To make this roast chicken, first preheat your oven..."* — it gets `ingredients` as a structured array and `instructions` as ordered steps, ready for an LLM to reason over directly.
+
+**Sites without JSON-LD still work** — OpenFeeder falls back to OpenGraph metadata and HTML content extraction. JSON-LD just makes the output richer and more precise.
 
 ---
 
