@@ -19,6 +19,7 @@
 
 'use strict';
 
+const crypto = require('crypto');
 const { handleDiscovery } = require('./handlers/discovery');
 const { handleContent } = require('./handlers/content');
 const { createGatewayMiddleware } = require('./gateway');
@@ -86,7 +87,7 @@ function openFeederMiddleware(config) {
         endpoint,
         query,
         intent: req.headers['x-openfeeder-intent'] || '',
-        results: res._openfeederResults || 0,
+        results: (res.locals && res.locals.openfeederResults) || 0,
         cached: res.getHeader('x-openfeeder-cache') === 'HIT',
         responseMs: Math.round(Date.now() - startTime),
       });
@@ -107,7 +108,9 @@ function openFeederMiddleware(config) {
       if (config.apiKey) {
         const authHeader = req.headers['authorization'] || '';
         const expected = `Bearer ${config.apiKey}`;
-        if (authHeader !== expected) {
+        const a = Buffer.from(authHeader);
+        const b = Buffer.from(expected);
+        if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) {
           return res
             .set({
               'Content-Type': 'application/json',

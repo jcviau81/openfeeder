@@ -210,7 +210,7 @@ def openfeeder_router(
                 "schema": "openfeeder/1.0",
                 "url": item.get("url", normalized_url),
                 "title": item.get("title", ""),
-                "published": item.get("published", ""),
+                "published": item.get("published") or None,
                 "language": language,
                 "summary": summary,
                 "chunks": chunks_raw,
@@ -271,7 +271,7 @@ def openfeeder_router(
             {
                 "url": item.get("url", ""),
                 "title": item.get("title", ""),
-                "published": item.get("published", ""),
+                "published": item.get("published") or None,
                 "summary": summarise(item.get("content") or ""),
             }
             for item in raw_items

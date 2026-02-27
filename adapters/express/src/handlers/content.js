@@ -247,7 +247,7 @@ async function handleContent(req, res, config) {
         deleted: [],
       };
 
-      res._openfeederResults = updated.length;
+      res.locals.openfeederResults = updated.length;
       return res.set({
         ...HEADERS,
         ...getRateLimitHeaders(),
@@ -304,7 +304,7 @@ async function handleContent(req, res, config) {
         return res.status(304).end();
       }
 
-      res._openfeederResults = chunks.length;
+      res.locals.openfeederResults = chunks.length;
       return res.set({
         ...HEADERS,
         ...getRateLimitHeaders(),
@@ -363,7 +363,7 @@ async function handleContent(req, res, config) {
     const etag = makeEtag(body);
     const lastMod = getLastModified(filteredItems);
 
-    res._openfeederResults = items.length;
+    res.locals.openfeederResults = items.length;
 
     if (req.headers['if-none-match'] === etag) {
       return res.status(304).end();

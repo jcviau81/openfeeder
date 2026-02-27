@@ -59,7 +59,7 @@ class OpenFeeder_Content_API {
 		$api_key = get_option( 'openfeeder_api_key', '' );
 		if ( ! empty( $api_key ) ) {
 			$auth_header = isset( $_SERVER['HTTP_AUTHORIZATION'] ) ? trim( $_SERVER['HTTP_AUTHORIZATION'] ) : '';
-			if ( $auth_header !== 'Bearer ' . $api_key ) {
+			if ( ! hash_equals( 'Bearer ' . $api_key, $auth_header ) ) {
 				$this->add_rate_limit_headers();
 				wp_send_json(
 					array(

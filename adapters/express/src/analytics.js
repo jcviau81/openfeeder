@@ -122,6 +122,9 @@ class Analytics {
         },
       ],
     };
+    // NOTE: GA4 Measurement Protocol requires api_secret as a URL query param (Google API design).
+    // This secret will appear in proxy/access logs. Rotate it if exposed.
+    // See: https://developers.google.com/analytics/devguides/collection/protocol/ga4/reference
     const url = `https://www.google-analytics.com/mp/collect?measurement_id=${this.siteId}&api_secret=${this.apiKey}`;
     const response = await fetch(url, {
       method: 'POST',

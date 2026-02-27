@@ -58,7 +58,7 @@ The content endpoint path is defined in the discovery document. The **recommende
 | `url` | string | No | Relative path of the page to fetch |
 | `q` | string | No | Semantic query for relevance ranking |
 | `page` | integer | No | Page number for paginated index (default: 1) |
-| `limit` | integer | No | Max chunks to return (default: 10, max: 50) |
+| `limit` | integer | No | Max chunks to return (default: 10, max: 100) |
 | `min_score` | float | No | Minimum relevance score 0.0–1.0 (default: 0.0). Filters out chunks below threshold. Only applies when `?q=` is set. Higher = more precise, fewer results. |
 | `type` | string | No | Filter index to pages of a specific JSON-LD type. Valid values: `recipe`, `article`, `product`, `event`, `page`. If omitted, all types are returned. *(implementation: planned)* |
 
@@ -274,6 +274,19 @@ Sites MAY require authentication for the content endpoint:
   }
 }
 ```
+
+### 8.1 Error Code Reference
+
+| Code | HTTP Status | Description |
+|------|-------------|-------------|
+| `NOT_FOUND` | 404 | The requested content does not exist |
+| `RATE_LIMITED` | 429 | Too many requests — retry after the delay indicated by rate-limit headers |
+| `AUTH_REQUIRED` | 401 | Authentication is required but no valid credentials were provided |
+| `SERVER_ERROR` | 500 | An unexpected server-side error occurred |
+| `INVALID_URL` | 400 | The provided URL is invalid or not found on this site |
+| `INVALID_PARAM` | 400 | A query parameter has an invalid value |
+| `INVALID_SESSION` | 400 | The session ID does not exist or has expired |
+| `SESSION_EXPIRED` | 400 | The session TTL has been exceeded |
 
 ---
 

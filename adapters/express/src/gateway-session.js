@@ -10,6 +10,8 @@ class GatewaySessionStore {
   constructor(ttlMs = 300_000) {
     this._ttl = ttlMs;
     this._store = new Map();
+    this._cleanupInterval = setInterval(() => this._sweep(), 60_000);
+    if (this._cleanupInterval.unref) this._cleanupInterval.unref();
   }
 
   /**
@@ -44,6 +46,18 @@ class GatewaySessionStore {
    */
   delete(id) {
     this._store.delete(id);
+  }
+
+  /**
+   * Remove all expired sessions from the store.
+   */
+  _sweep() {
+    const now = Date.now();
+    for (const [id, entry] of this._store) {
+      if (now - entry.created > this._ttl) {
+        this._store.delete(id);
+      }
+    }
   }
 }
 

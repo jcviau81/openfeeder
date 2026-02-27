@@ -17,6 +17,7 @@ Environment variables:
 from __future__ import annotations
 
 import asyncio
+import hmac
 import logging
 import math
 import os
@@ -131,6 +132,9 @@ async def lifespan(app: FastAPI):
     """Start the indexer, run the initial crawl, and schedule periodic re-crawls."""
     global indexer, scheduler
 
+    if not WEBHOOK_SECRET:
+        logger.warning("OPENFEEDER_WEBHOOK_SECRET is not set — webhook endpoint is publicly accessible")
+
     indexer = Indexer(model_name=EMBEDDING_MODEL)
     _load_tombstones()
 
@@ -220,7 +224,7 @@ async def content(
     since: str | None = Query(None, description="RFC3339 datetime or sync_token for differential sync"),
     until: str | None = Query(None, description="RFC3339 datetime upper bound for differential sync date range"),
     page: int = Query(1, ge=1, description="Page number (index mode)"),
-    limit: int = Query(10, ge=1, le=50, description="Max chunks / items to return"),
+    limit: int = Query(10, ge=1, le=100, description="Max chunks / items to return"),
     min_score: float = Query(0.0, ge=0.0, le=1.0, description="Minimum relevance score (0.0–1.0). Filters out chunks below threshold. Only applies to search (?q=) mode."),
 ):
     """
@@ -263,7 +267,7 @@ async def content(
                 return _error_response("INVALID_PARAM", "Invalid ?since= value. Provide an RFC3339 datetime or a valid sync_token.", 400)
 
         if until:
-            until_ts = parse_since(until)
+            until_ts = parse_until(until)
             if until_ts is None:
                 return _error_response("INVALID_PARAM", "Invalid ?until= value. Provide an RFC3339 datetime.", 400)
 
@@ -426,7 +430,7 @@ def _check_webhook_auth(request: Request) -> None:
     if not auth_header.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Missing Bearer token")
     token = auth_header[len("Bearer "):]
-    if token != WEBHOOK_SECRET:
+    if not hmac.compare_digest(token, WEBHOOK_SECRET):
         raise HTTPException(status_code=403, detail="Invalid webhook secret")
 
 
@@ -522,6 +526,17 @@ async def webhook_update(
 # ---------------------------------------------------------------------------
 # Error helper
 # ---------------------------------------------------------------------------
+
+def parse_until(value: str) -> float:
+    """Parse ?until= — accepts only RFC 3339 datetime, not sync tokens."""
+    try:
+        return datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": "INVALID_PARAM", "message": "?until= must be an RFC 3339 datetime"}
+        )
+
 
 def _error_response(code: str, message: str, status: int = 400) -> JSONResponse:
     """Return a spec-compliant error response (spec §8)."""
