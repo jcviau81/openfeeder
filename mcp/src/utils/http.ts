@@ -16,18 +16,26 @@ export interface HttpResponse {
 
 export async function httpGet(
   url: string,
-  timeoutMs: number = DEFAULT_TIMEOUT_MS
+  timeoutMs: number = DEFAULT_TIMEOUT_MS,
+  apiKey?: string
 ): Promise<HttpResponse> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
+  const resolvedKey = apiKey || process.env.OPENFEEDER_API_KEY;
+
   try {
+    const headers: Record<string, string> = {
+      "User-Agent": USER_AGENT,
+      Accept: "application/json, text/html, */*",
+    };
+    if (resolvedKey) {
+      headers["Authorization"] = `Bearer ${resolvedKey}`;
+    }
+
     const resp = await fetch(url, {
       method: "GET",
-      headers: {
-        "User-Agent": USER_AGENT,
-        Accept: "application/json, text/html, */*",
-      },
+      headers,
       signal: controller.signal,
       redirect: "follow",
     });

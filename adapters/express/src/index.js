@@ -116,9 +116,6 @@ function openFeederMiddleware(config) {
               'Content-Type': 'application/json',
               'X-OpenFeeder': '1.0',
               'Access-Control-Allow-Origin': '*',
-              'X-RateLimit-Limit': '60',
-              'X-RateLimit-Remaining': '60',
-              'X-RateLimit-Reset': String(Math.floor(Date.now() / 1000) + 60),
             })
             .status(401)
             .json({

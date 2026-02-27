@@ -261,15 +261,26 @@ class Indexer:
         """
         Get paginated index of all pages.
         Returns (items, total_count).
+
+        NOTE: Memory concern — this method loads ALL page metadata from ChromaDB
+        into memory before applying pagination. For large indexes (>1000 pages),
+        this could consume significant memory. ChromaDB does not natively support
+        offset-based pagination on .get(), so a full load is currently required.
         """
         # Get all pages
-        all_pages = self._pages_col.get(include=["metadatas"])
-        if not all_pages["ids"]:
+        pages_data = self._pages_col.get(include=["metadatas"])
+        if not pages_data["ids"]:
             return [], 0
 
-        total = len(all_pages["ids"])
+        total = len(pages_data["ids"])
+        if total > 1000:
+            logger.warning(
+                f"Large index detected ({total} pages). get_all_pages() loads all metadata "
+                f"into memory before paginating. Consider implementing ChromaDB native pagination "
+                f"for indexes > 1000 pages."
+            )
         items = []
-        for meta in all_pages["metadatas"]:
+        for meta in pages_data["metadatas"]:
             items.append({
                 "url": meta.get(META_URL, ""),
                 "title": meta.get(META_TITLE, ""),

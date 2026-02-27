@@ -36,14 +36,6 @@ function sanitizeUrlParam(raw: string): string | null {
   }
 }
 
-function getRateLimitHeaders(): Record<string, string> {
-  const reset = String(Math.floor(Date.now() / 1000) + 60);
-  return {
-    "X-RateLimit-Limit": "60",
-    "X-RateLimit-Remaining": "60",
-    "X-RateLimit-Reset": reset,
-  };
-}
 
 /** Compute a quoted MD5 ETag from a JSON string. */
 function makeEtag(body: string): string {
@@ -75,8 +67,6 @@ function sendJson(
   cacheHeaders?: { lastMod: string }
 ): boolean {
   const body = JSON.stringify(data, null, 2);
-  const rlHeaders = getRateLimitHeaders();
-
   if (cacheHeaders) {
     const etag = makeEtag(body);
     if (req.headers["if-none-match"] === etag) {
@@ -93,7 +83,6 @@ function sendJson(
       "ETag": etag,
       "Last-Modified": cacheHeaders.lastMod,
       "Vary": "Accept-Encoding",
-      ...rlHeaders,
     });
   } else {
     res.writeHead(status, {
@@ -101,7 +90,6 @@ function sendJson(
       "X-OpenFeeder": "1.0",
       "Access-Control-Allow-Origin": "*",
       "Content-Length": Buffer.byteLength(body),
-      ...rlHeaders,
     });
   }
   res.end(body);

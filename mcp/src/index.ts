@@ -51,6 +51,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             description:
               "Optional search query. If provided and the site supports OpenFeeder, returns ranked search results instead of the full index.",
           },
+          api_key: {
+            type: "string",
+            description:
+              "Optional API key for authenticated OpenFeeder sites (overrides OPENFEEDER_API_KEY env var)",
+          },
         },
         required: ["url"],
       },
@@ -65,6 +70,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           url: {
             type: "string",
             description: "The URL of the site to check for OpenFeeder support",
+          },
+          api_key: {
+            type: "string",
+            description:
+              "Optional API key for authenticated OpenFeeder sites (overrides OPENFEEDER_API_KEY env var)",
           },
         },
         required: ["url"],
@@ -84,6 +94,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           page: {
             type: "number",
             description: "Page number for pagination (default: 1)",
+          },
+          api_key: {
+            type: "string",
+            description:
+              "Optional API key for authenticated OpenFeeder sites (overrides OPENFEEDER_API_KEY env var)",
           },
         },
         required: ["url"],
@@ -108,6 +123,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             type: "number",
             description:
               "Minimum relevance score between 0.0 and 1.0 (default: 0.0)",
+          },
+          api_key: {
+            type: "string",
+            description:
+              "Optional API key for authenticated OpenFeeder sites (overrides OPENFEEDER_API_KEY env var)",
           },
         },
         required: ["url", "query"],

@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import re
+import urllib.robotparser
 from dataclasses import dataclass, field
 from urllib.parse import urljoin, urlparse, urldefrag
 from xml.etree import ElementTree
@@ -95,6 +96,35 @@ def _extract_links(html: str, base_url: str) -> list[str]:
     return links
 
 
+async def _fetch_robots_txt(
+    client: httpx.AsyncClient, site_url: str
+) -> urllib.robotparser.RobotFileParser | None:
+    """Fetch and parse robots.txt to respect crawl rules."""
+    parsed = urlparse(site_url)
+    robots_url = f"{parsed.scheme}://{parsed.netloc}/robots.txt"
+    try:
+        resp = await client.get(robots_url, follow_redirects=True)
+        if resp.status_code == 200:
+            rp = urllib.robotparser.RobotFileParser()
+            rp.set_url(robots_url)
+            rp.parse(resp.text.splitlines())
+            logger.info(f"Loaded robots.txt from {robots_url}")
+            return rp
+        else:
+            logger.debug(f"No robots.txt found at {robots_url} (HTTP {resp.status_code})")
+            return None
+    except Exception as e:
+        logger.debug(f"Could not fetch robots.txt: {e}")
+        return None
+
+
+def _is_allowed(robots: urllib.robotparser.RobotFileParser | None, url: str) -> bool:
+    """Check if a URL is allowed by robots.txt."""
+    if robots is None:
+        return True
+    return robots.can_fetch("OpenFeeder-Sidecar", url)
+
+
 async def crawl(site_url: str, max_pages: int = 500) -> CrawlResult:
     """
     Crawl *site_url* and return up to *max_pages* pages.
@@ -112,6 +142,9 @@ async def crawl(site_url: str, max_pages: int = 500) -> CrawlResult:
         follow_redirects=True,
         timeout=20,
     ) as client:
+        # Respect robots.txt
+        robots = await _fetch_robots_txt(client, site_url)
+
         # Seed from sitemap
         sitemap_urls = await _fetch_sitemap(client, site_url)
         for u in sitemap_urls:
@@ -130,6 +163,10 @@ async def crawl(site_url: str, max_pages: int = 500) -> CrawlResult:
         while idx < len(queue) and len(result.pages) < max_pages:
             url = queue[idx]
             idx += 1
+
+            if not _is_allowed(robots, url):
+                logger.debug(f"Skipping {url} — disallowed by robots.txt")
+                continue
 
             try:
                 resp = await client.get(url, timeout=15)

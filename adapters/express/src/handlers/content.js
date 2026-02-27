@@ -22,18 +22,6 @@ const HEADERS = {
 };
 
 /**
- * Returns rate limit headers with Reset = now + 60 seconds.
- * @returns {object}
- */
-function getRateLimitHeaders() {
-  return {
-    'X-RateLimit-Limit': '60',
-    'X-RateLimit-Remaining': '60',
-    'X-RateLimit-Reset': String(Math.floor(Date.now() / 1000) + 60),
-  };
-}
-
-/**
  * Compute a quoted MD5 ETag from an arbitrary data object.
  * @param {unknown} data
  * @returns {string}
@@ -83,7 +71,7 @@ function sanitizeUrlParam(raw) {
  * @param {number} status
  */
 function sendError(res, code, message, status) {
-  res.set({ ...HEADERS, ...getRateLimitHeaders() }).status(status).json({
+  res.set(HEADERS).status(status).json({
     schema: 'openfeeder/1.0',
     error: { code, message },
   });
@@ -248,9 +236,9 @@ async function handleContent(req, res, config) {
       };
 
       res.locals.openfeederResults = updated.length;
+      res.setHeader('X-OpenFeeder-Cache', 'MISS');
       return res.set({
         ...HEADERS,
-        ...getRateLimitHeaders(),
       }).status(200).json(body);
     }
 
@@ -305,9 +293,9 @@ async function handleContent(req, res, config) {
       }
 
       res.locals.openfeederResults = chunks.length;
+      res.setHeader('X-OpenFeeder-Cache', 'MISS');
       return res.set({
         ...HEADERS,
-        ...getRateLimitHeaders(),
         'Cache-Control': 'public, max-age=300, stale-while-revalidate=60',
         'ETag': etag,
         'Last-Modified': lastMod,
@@ -369,9 +357,9 @@ async function handleContent(req, res, config) {
       return res.status(304).end();
     }
 
+    res.setHeader('X-OpenFeeder-Cache', 'MISS');
     return res.set({
       ...HEADERS,
-      ...getRateLimitHeaders(),
       'Cache-Control': 'public, max-age=300, stale-while-revalidate=60',
       'ETag': etag,
       'Last-Modified': lastMod,

@@ -41,26 +41,21 @@ class OpenFeeder_Content_API {
 	}
 
 	/**
-	 * Add rate limit headers to the current response.
-	 * These are informational — actual enforcement is at the server/Nginx level.
-	 */
-	private function add_rate_limit_headers(): void {
-		$reset = time() + 60;
-		header( 'X-RateLimit-Limit: 60' );
-		header( 'X-RateLimit-Remaining: 60' );
-		header( 'X-RateLimit-Reset: ' . $reset );
-	}
-
-	/**
 	 * Route the request to the appropriate handler.
 	 */
 	public function serve() {
 		// API key check: if openfeeder_api_key is set, require Authorization: Bearer <key>
 		$api_key = get_option( 'openfeeder_api_key', '' );
 		if ( ! empty( $api_key ) ) {
-			$auth_header = isset( $_SERVER['HTTP_AUTHORIZATION'] ) ? trim( $_SERVER['HTTP_AUTHORIZATION'] ) : '';
+			$auth_header = '';
+			if ( isset( $_SERVER['HTTP_AUTHORIZATION'] ) ) {
+				$auth_header = trim( $_SERVER['HTTP_AUTHORIZATION'] );
+			} elseif ( isset( $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ) ) {
+				// Apache mod_php strips Authorization header; this fallback requires:
+				// RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+				$auth_header = trim( $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] );
+			}
 			if ( ! hash_equals( 'Bearer ' . $api_key, $auth_header ) ) {
-				$this->add_rate_limit_headers();
 				wp_send_json(
 					array(
 						'schema' => 'openfeeder/1.0',
@@ -93,8 +88,7 @@ class OpenFeeder_Content_API {
 		if ( ! empty( $raw_url ) ) {
 			$url = $this->sanitize_url_param( $raw_url );
 			if ( null === $url ) {
-				$this->add_rate_limit_headers();
-				$this->send_error( 'INVALID_URL', 'The ?url= parameter must be a valid relative path.', 400 );
+						$this->send_error( 'INVALID_URL', 'The ?url= parameter must be a valid relative path.', 400 );
 				return;
 			}
 			$this->serve_single( $url );
@@ -548,10 +542,15 @@ class OpenFeeder_Content_API {
 				'post_type'    => $this->get_allowed_post_types(),
 				'post_status'  => 'publish',
 				'has_password' => false,
-				'numberposts'  => 1,
+				'numberposts'  => 10,
 			) );
-			if ( ! empty( $posts ) ) {
-				return $posts[0];
+			// Verify permalink matches to avoid returning wrong post when
+			// two posts share the same slug in different categories.
+			foreach ( $posts as $post ) {
+				$post_permalink = str_replace( home_url(), '', get_permalink( $post->ID ) );
+				if ( rtrim( $post_permalink, '/' ) === rtrim( $path, '/' ) ) {
+					return $post;
+				}
 			}
 		}
 
@@ -630,7 +629,6 @@ class OpenFeeder_Content_API {
 		header( 'ETag: ' . $etag );
 		header( 'Last-Modified: ' . $last_modified );
 		header( 'Vary: Accept-Encoding' );
-		$this->add_rate_limit_headers();
 
 		echo $json; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 		exit;
@@ -648,7 +646,6 @@ class OpenFeeder_Content_API {
 		header( 'Content-Type: application/json; charset=utf-8' );
 		header( 'X-OpenFeeder: 1.0' );
 		header( 'Access-Control-Allow-Origin: *' );
-		$this->add_rate_limit_headers();
 
 		echo wp_json_encode(
 			array(

@@ -9,9 +9,11 @@ export interface SearchInput {
   url: string;
   query: string;
   min_score?: number;
+  api_key?: string;
 }
 
 export async function search(input: SearchInput): Promise<unknown> {
+  const apiKey = input.api_key || process.env.OPENFEEDER_API_KEY;
   const endpoint = await resolveEndpoint(input.url);
   if (!endpoint) {
     return { error: "OpenFeeder not supported on this site", url: input.url };
@@ -21,7 +23,7 @@ export async function search(input: SearchInput): Promise<unknown> {
     q: input.query,
     min_score: input.min_score,
   });
-  const resp = await httpGet(fetchUrl);
+  const resp = await httpGet(fetchUrl, undefined, apiKey);
 
   if (!resp.ok) {
     return {

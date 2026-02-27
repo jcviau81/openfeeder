@@ -45,9 +45,6 @@ $config = new JConfig();
 header('Content-Type: application/json; charset=utf-8');
 header('X-OpenFeeder: 1.0');
 header('Access-Control-Allow-Origin: *');
-header('X-RateLimit-Limit: 60');
-header('X-RateLimit-Remaining: 60');
-header('X-RateLimit-Reset: ' . (time() + 60));
 
 // Connect to DB using PDO
 try {
@@ -74,7 +71,7 @@ if (strpos($path, 'openfeeder.json') !== false) {
         'version'      => '1.0.1',
         'site'         => ['name' => $siteName, 'url' => $siteUrl, 'language' => 'en', 'description' => ''],
         'feed'         => ['endpoint' => '/openfeeder', 'type' => 'paginated'],
-        'capabilities' => ['search'],
+        'capabilities' => [],
         'contact'      => null,
     ], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES);
     exit;
@@ -101,9 +98,6 @@ $url    = $rawUrl !== null ? sanitize_url_param_joomla((string)$rawUrl) : null;
 $page   = max(1, (int)($_GET['page']  ?? 1));
 $limit  = min(50, max(1, (int)($_GET['limit'] ?? 10)));
 $offset = ($page - 1) * $limit;
-
-// Sanitize ?q=: limit to 200 chars (strip_tags applied implicitly via DB parameterized query)
-$q = mb_substr(strip_tags($_GET['q'] ?? ''), 0, 200);
 
 if ($rawUrl !== null && $url === null) {
     http_response_code(400);
@@ -144,14 +138,15 @@ if ($url) {
 $total      = (int) $pdo->query("SELECT COUNT(*) FROM `{$table}` WHERE state=1")->fetchColumn();
 $totalPages = max(1, (int) ceil($total / $limit));
 
-$stmt = $pdo->prepare("SELECT id, title, created, alias, introtext FROM `{$table}` WHERE state=1 ORDER BY created DESC LIMIT ? OFFSET ?");
+$catTable = $prefix . 'categories';
+$stmt = $pdo->prepare("SELECT a.id, a.title, a.created, a.alias, a.introtext, c.alias AS cat_alias FROM `{$table}` a LEFT JOIN `{$catTable}` c ON a.catid = c.id WHERE a.state=1 ORDER BY a.created DESC LIMIT ? OFFSET ?");
 $stmt->bindValue(1, $limit, PDO::PARAM_INT);
 $stmt->bindValue(2, $offset, PDO::PARAM_INT);
 $stmt->execute();
 $articles = $stmt->fetchAll(PDO::FETCH_OBJ);
 
 $items = array_map(fn($a) => [
-    'url'       => '/article/' . $a->alias,
+    'url'       => '/' . ($a->cat_alias ?? 'uncategorised') . '/' . $a->alias,
     'title'     => $a->title,
     'published' => $a->created,
     'summary'   => mb_substr(strip_tags($a->introtext), 0, 200),

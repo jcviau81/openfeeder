@@ -32,14 +32,8 @@ OPENFEEDER_HEADERS = {
 
 
 def _get_headers() -> dict:
-    """Return OpenFeeder headers including dynamic rate limit headers."""
-    reset = str(int(time.time()) + 60)
-    return {
-        **OPENFEEDER_HEADERS,
-        "X-RateLimit-Limit": "60",
-        "X-RateLimit-Remaining": "60",
-        "X-RateLimit-Reset": reset,
-    }
+    """Return standard OpenFeeder headers."""
+    return {**OPENFEEDER_HEADERS}
 
 
 def make_etag(data: dict) -> str:
@@ -230,6 +224,7 @@ def openfeeder_router(
 
             headers = {
                 **_get_headers(),
+                "X-OpenFeeder-Cache": "MISS",
                 "Cache-Control": "public, max-age=300, stale-while-revalidate=60",
                 "ETag": etag,
                 "Last-Modified": last_mod,
@@ -293,6 +288,7 @@ def openfeeder_router(
 
         headers = {
             **_get_headers(),
+            "X-OpenFeeder-Cache": "MISS",
             "Cache-Control": "public, max-age=300, stale-while-revalidate=60",
             "ETag": etag,
             "Last-Modified": last_mod,

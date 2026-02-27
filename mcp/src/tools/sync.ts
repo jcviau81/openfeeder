@@ -8,16 +8,18 @@ import { resolveEndpoint } from "../utils/resolve.js";
 export interface SyncInput {
   url: string;
   since: string;
+  api_key?: string;
 }
 
 export async function sync(input: SyncInput): Promise<unknown> {
+  const apiKey = input.api_key || process.env.OPENFEEDER_API_KEY;
   const endpoint = await resolveEndpoint(input.url);
   if (!endpoint) {
     return { error: "OpenFeeder not supported on this site", url: input.url };
   }
 
   const fetchUrl = buildUrl(endpoint, { since: input.since });
-  const resp = await httpGet(fetchUrl);
+  const resp = await httpGet(fetchUrl, undefined, apiKey);
 
   if (!resp.ok) {
     return {

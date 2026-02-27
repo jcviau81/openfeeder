@@ -25,15 +25,9 @@ const BASE_HEADERS = {
   "Access-Control-Allow-Origin": "*",
 };
 
-/** Returns headers including dynamic rate limit fields. */
+/** Returns standard OpenFeeder headers. */
 function getHeaders(): Record<string, string> {
-  const reset = String(Math.floor(Date.now() / 1000) + 60);
-  return {
-    ...BASE_HEADERS,
-    "X-RateLimit-Limit": "60",
-    "X-RateLimit-Remaining": "60",
-    "X-RateLimit-Reset": reset,
-  };
+  return { ...BASE_HEADERS };
 }
 
 /** Compute a quoted MD5 ETag from arbitrary data. */

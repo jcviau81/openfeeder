@@ -11,6 +11,7 @@ import { httpGet } from "../utils/http.js";
 export interface SmartFetchInput {
   url: string;
   query?: string;
+  api_key?: string;
 }
 
 export interface SmartFetchResult {
@@ -21,7 +22,8 @@ export interface SmartFetchResult {
 }
 
 export async function smartFetch(input: SmartFetchInput): Promise<SmartFetchResult> {
-  const discoveryResult = await discover(input.url);
+  const apiKey = input.api_key || process.env.OPENFEEDER_API_KEY;
+  const discoveryResult = await discover(input.url, apiKey);
 
   if (discoveryResult.supported) {
     // Detect if this is a specific page (not root)
@@ -33,6 +35,7 @@ export async function smartFetch(input: SmartFetchInput): Promise<SmartFetchResu
       const results = await search({
         url: input.url,
         query: input.query,
+        api_key: apiKey,
       });
       return {
         method: "openfeeder_search",
@@ -47,7 +50,7 @@ export async function smartFetch(input: SmartFetchInput): Promise<SmartFetchResu
       const endpoint = await resolveEndpoint(input.url);
       if (endpoint) {
         const pageEndpoint = `${endpoint}?url=${encodeURIComponent(input.url)}&limit=50`;
-        const resp = await httpGet(pageEndpoint, 15_000);
+        const resp = await httpGet(pageEndpoint, 15_000, apiKey);
         if (resp.status === 200) {
           return {
             method: "openfeeder_page",
@@ -60,7 +63,7 @@ export async function smartFetch(input: SmartFetchInput): Promise<SmartFetchResu
     }
 
     // Root URL, no query → use list
-    const results = await list({ url: input.url });
+    const results = await list({ url: input.url, api_key: apiKey });
     return {
       method: "openfeeder_list",
       openfeeder_supported: true,
@@ -71,7 +74,7 @@ export async function smartFetch(input: SmartFetchInput): Promise<SmartFetchResu
 
   // Fallback: fetch raw HTML
   try {
-    const resp = await httpGet(input.url, 15_000);
+    const resp = await httpGet(input.url, 15_000, apiKey);
     return {
       method: "html_fallback",
       openfeeder_supported: false,

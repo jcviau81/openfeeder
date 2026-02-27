@@ -11,12 +11,13 @@ export interface DiscoverResult {
   discovery_method: string;
 }
 
-export async function discover(url: string): Promise<DiscoverResult> {
+export async function discover(url: string, apiKey?: string): Promise<DiscoverResult> {
+  const resolvedKey = apiKey || process.env.OPENFEEDER_API_KEY;
   const origin = getOrigin(url);
 
   // Method 1: .well-known/openfeeder.json
   try {
-    const resp = await httpGet(`${origin}/.well-known/openfeeder.json`);
+    const resp = await httpGet(`${origin}/.well-known/openfeeder.json`, undefined, resolvedKey);
     if (resp.ok) {
       const data = parseJson(resp.text) as Record<string, unknown> | null;
       if (data && data.version) {
@@ -40,7 +41,7 @@ export async function discover(url: string): Promise<DiscoverResult> {
 
   // Method 2: HTTP headers on the URL itself
   try {
-    const resp = await httpGet(url);
+    const resp = await httpGet(url, undefined, resolvedKey);
 
     // Check Link header
     const linkHeader = resp.headers.get("link");
@@ -108,7 +109,7 @@ export async function discover(url: string): Promise<DiscoverResult> {
 
   // Method 4: llms.txt
   try {
-    const resp = await httpGet(`${origin}/llms.txt`);
+    const resp = await httpGet(`${origin}/llms.txt`, undefined, resolvedKey);
     if (resp.ok && /openfeeder/i.test(resp.text)) {
       return {
         supported: true,

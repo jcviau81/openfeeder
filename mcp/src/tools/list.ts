@@ -8,9 +8,11 @@ import { resolveEndpoint } from "../utils/resolve.js";
 export interface ListInput {
   url: string;
   page?: number;
+  api_key?: string;
 }
 
 export async function list(input: ListInput): Promise<unknown> {
+  const apiKey = input.api_key || process.env.OPENFEEDER_API_KEY;
   const endpoint = await resolveEndpoint(input.url);
   if (!endpoint) {
     return { error: "OpenFeeder not supported on this site", url: input.url };
@@ -33,7 +35,7 @@ export async function list(input: ListInput): Promise<unknown> {
     if (pathTerms) {
       // Use search with path terms as query to get filtered results
       const searchUrl = buildUrl(endpoint, { q: pathTerms, limit: input.page ? 10 : 20 });
-      const resp = await httpGet(searchUrl);
+      const resp = await httpGet(searchUrl, undefined, apiKey);
       if (resp.ok) {
         const data = parseJson(resp.text);
         if (data) return { ...data as object, _filter_note: `Filtered by path: "${pathTerms}"` };
@@ -42,7 +44,7 @@ export async function list(input: ListInput): Promise<unknown> {
 
     // Fallback: try fetching the specific page via ?url=
     const pageUrl = buildUrl(endpoint, { url: input.url, limit: 20 });
-    const pageResp = await httpGet(pageUrl);
+    const pageResp = await httpGet(pageUrl, undefined, apiKey);
     if (pageResp.ok && pageResp.status !== 404) {
       const data = parseJson(pageResp.text);
       if (data) return data;
@@ -51,7 +53,7 @@ export async function list(input: ListInput): Promise<unknown> {
 
   // Default: paginated global index
   const fetchUrl = buildUrl(endpoint, { page: input.page });
-  const resp = await httpGet(fetchUrl);
+  const resp = await httpGet(fetchUrl, undefined, apiKey);
 
   if (!resp.ok) {
     return { error: `HTTP ${resp.status} from OpenFeeder endpoint`, url: fetchUrl };

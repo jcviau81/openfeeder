@@ -94,6 +94,16 @@ Responses are cached using WordPress transients (1-hour TTL). Cache is automatic
 
 This plugin only exposes content that is **already publicly published** on your site. Draft, private, pending, and trashed posts are never included. Disable the plugin at any time from **Settings > OpenFeeder** to stop serving the API.
 
+## Apache Authorization Header
+
+If you use Apache with `mod_php` or `mod_fcgid`, the `Authorization` header may be stripped before reaching PHP. This breaks API key authentication. Add the following to your `.htaccess` (before the WordPress rewrite rules):
+
+```apacheconf
+RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
+```
+
+The plugin automatically checks `REDIRECT_HTTP_AUTHORIZATION` as a fallback, so this one-line fix is all you need.
+
 ## Requirements
 
 - WordPress 5.0+
