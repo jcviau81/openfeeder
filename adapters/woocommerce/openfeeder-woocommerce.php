@@ -3,7 +3,7 @@
  * Plugin Name: OpenFeeder for WooCommerce
  * Plugin URI:  https://github.com/jcviau81/openfeeder
  * Description: Expose WooCommerce products to LLMs via the OpenFeeder protocol. Powers AI shopping assistants with real-time product data.
- * Version:     1.0.1
+ * Version:     1.0.2
  * Author:      OpenFeeder
  * Author URI:  https://github.com/jcviau81/openfeeder
  * License:     MIT
@@ -15,7 +15,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'OPENFEEDER_WC_VERSION', '1.0.1' );
+define( 'OPENFEEDER_WC_VERSION', '1.0.2' );
 define( 'OPENFEEDER_WC_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 define( 'OPENFEEDER_WC_PLUGIN_FILE', __FILE__ );
 

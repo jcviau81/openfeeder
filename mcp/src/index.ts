@@ -27,7 +27,7 @@ import { sync } from "./tools/sync.js";
 import { smartFetch } from "./tools/smart-fetch.js";
 
 const server = new Server(
-  { name: "openfeeder-mcp", version: "1.0.1" },
+  { name: "openfeeder-mcp", version: "1.0.2" },
   { capabilities: { tools: {} } }
 );
 

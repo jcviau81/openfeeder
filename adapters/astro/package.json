@@ -1,6 +1,6 @@
 {
   "name": "openfeeder-astro",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "OpenFeeder adapter for Astro (SSR integration with auto-injected API routes)",
   "license": "MIT",
   "type": "module",

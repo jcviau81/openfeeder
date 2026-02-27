@@ -155,7 +155,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="OpenFeeder Sidecar",
-    version="1.0.1",
+    version="1.0.2",
     docs_url=None,
     redoc_url=None,
     lifespan=lifespan,
@@ -182,7 +182,7 @@ async def discovery(request: Request):
     """OpenFeeder discovery document (spec §2)."""
     start_time = time.time()
     body = {
-        "version": "1.0.1",
+        "version": "1.0.2",
         "site": {
             "name": SITE_NAME,
             "url": SITE_URL,
@@ -297,7 +297,7 @@ async def content(
             sync_meta["until"] = until_iso
 
         body = {
-            "openfeeder_version": "1.0.1",
+            "openfeeder_version": "1.0.2",
             "sync": sync_meta,
             "added": added,
             "updated": updated,

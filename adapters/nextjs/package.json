@@ -1,6 +1,6 @@
 {
   "name": "openfeeder-nextjs",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "OpenFeeder adapter for Next.js 14+ App Router",
   "license": "MIT",
   "type": "module",

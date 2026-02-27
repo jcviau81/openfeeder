@@ -18,4 +18,4 @@ Usage:
 from .router import openfeeder_router
 
 __all__ = ["openfeeder_router"]
-__version__ = "1.0.1"
+__version__ = "1.0.2"

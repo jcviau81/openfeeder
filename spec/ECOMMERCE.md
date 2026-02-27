@@ -23,7 +23,7 @@ Sites implementing the e-commerce extension add an `ecommerce` block to the base
 
 ```json
 {
-  "version": "1.0.1",
+  "version": "1.0.2",
   "site": { "name": "...", "url": "...", "language": "en", "description": "" },
   "feed": { "endpoint": "/openfeeder", "type": "paginated" },
   "capabilities": ["search", "products"],

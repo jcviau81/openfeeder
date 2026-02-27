@@ -25,7 +25,7 @@ class FeedInfo(BaseModel):
 
 
 class DiscoveryResponse(BaseModel):
-    version: str = "1.0.1"
+    version: str = "1.0.2"
     site: SiteInfo
     feed: FeedInfo
     capabilities: list[str] = ["search"]
