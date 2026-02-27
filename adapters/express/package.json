@@ -14,6 +14,9 @@
   "peerDependencies": {
     "express": ">=4.0.0"
   },
+  "scripts": {
+    "test": "node tests/test-discovery.js && node tests/test-content.js && node tests/test-chunker.js && node tests/test-gateway-session.js && node tests/test-analytics.js && node tests/test-until.js"
+  },
   "engines": {
     "node": ">=16.0.0"
   }
