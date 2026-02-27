@@ -149,6 +149,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
             description:
               "RFC 3339 timestamp (e.g. 2026-02-01T00:00:00Z) or a sync_token from a previous sync response",
           },
+          api_key: {
+            type: "string",
+            description:
+              "Optional API key for authenticated OpenFeeder sites (overrides OPENFEEDER_API_KEY env var)",
+          },
         },
         required: ["url", "since"],
       },
@@ -164,44 +169,45 @@ server.setRequestHandler(CallToolRequestSchema, async (request) => {
   try {
     switch (name) {
       case "smart_fetch": {
-        const { url, query } = args as { url: string; query?: string };
-        const result = await smartFetch({ url, query });
+        const { url, query, api_key } = args as { url: string; query?: string; api_key?: string };
+        const result = await smartFetch({ url, query, api_key });
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };
       }
 
       case "openfeeder_discover": {
-        const { url } = args as { url: string };
-        const result = await discover(url);
+        const { url, api_key } = args as { url: string; api_key?: string };
+        const result = await discover(url, api_key);
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };
       }
 
       case "openfeeder_list": {
-        const { url, page } = args as { url: string; page?: number };
-        const result = await list({ url, page });
+        const { url, page, api_key } = args as { url: string; page?: number; api_key?: string };
+        const result = await list({ url, page, api_key });
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };
       }
 
       case "openfeeder_search": {
-        const { url, query, min_score } = args as {
+        const { url, query, min_score, api_key } = args as {
           url: string;
           query: string;
           min_score?: number;
+          api_key?: string;
         };
-        const result = await search({ url, query, min_score });
+        const result = await search({ url, query, min_score, api_key });
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };
       }
 
       case "openfeeder_sync": {
-        const { url, since } = args as { url: string; since: string };
-        const result = await sync({ url, since });
+        const { url, since, api_key } = args as { url: string; since: string; api_key?: string };
+        const result = await sync({ url, since, api_key });
         return {
           content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
         };

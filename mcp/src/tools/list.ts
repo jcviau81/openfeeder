@@ -13,7 +13,7 @@ export interface ListInput {
 
 export async function list(input: ListInput): Promise<unknown> {
   const apiKey = input.api_key || process.env.OPENFEEDER_API_KEY;
-  const endpoint = await resolveEndpoint(input.url);
+  const endpoint = await resolveEndpoint(input.url, apiKey);
   if (!endpoint) {
     return { error: "OpenFeeder not supported on this site", url: input.url };
   }

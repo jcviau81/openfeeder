@@ -8,7 +8,7 @@ import { discover, DiscoverResult } from "../tools/discover.js";
 let discoveryCache = new Map<string, { result: DiscoverResult; ts: number }>();
 const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
 
-export async function resolveEndpoint(url: string): Promise<string | null> {
+export async function resolveEndpoint(url: string, apiKey?: string): Promise<string | null> {
   // If the URL already ends with /openfeeder, use it directly
   const parsed = new URL(url);
   if (parsed.pathname.endsWith("/openfeeder")) {
@@ -21,7 +21,7 @@ export async function resolveEndpoint(url: string): Promise<string | null> {
     return cached.result.openfeeder_url;
   }
 
-  const result = await discover(url);
+  const result = await discover(url, apiKey);
   discoveryCache.set(origin, { result, ts: Date.now() });
 
   return result.openfeeder_url;

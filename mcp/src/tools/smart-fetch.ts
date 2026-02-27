@@ -47,7 +47,7 @@ export async function smartFetch(input: SmartFetchInput): Promise<SmartFetchResu
 
     // Specific page, no query → fetch page chunks via ?url=
     if (isSpecificPage) {
-      const endpoint = await resolveEndpoint(input.url);
+      const endpoint = await resolveEndpoint(input.url, apiKey);
       if (endpoint) {
         const pageEndpoint = `${endpoint}?url=${encodeURIComponent(input.url)}&limit=50`;
         const resp = await httpGet(pageEndpoint, 15_000, apiKey);
