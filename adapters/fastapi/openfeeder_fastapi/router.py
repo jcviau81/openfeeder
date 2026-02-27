@@ -135,7 +135,7 @@ def openfeeder_router(
     @router.get("/.well-known/openfeeder.json")
     async def discovery(request: Request) -> Response:
         body = {
-            "version": "1.0",
+            "version": "1.0.1",
             "site": {
                 "name": site_name,
                 "url": site_url,

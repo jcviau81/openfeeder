@@ -34,7 +34,7 @@ class DiscoveryController extends ControllerBase {
     $language = \Drupal::languageManager()->getCurrentLanguage()->getId();
 
     $data = [
-      'version' => '1.0',
+      'version' => '1.0.1',
       'site' => [
         'name' => $site_config->get('name'),
         'url' => \Drupal::request()->getSchemeAndHttpHost() . '/',

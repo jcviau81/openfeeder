@@ -27,7 +27,7 @@ This endpoint MUST:
 
 ```json
 {
-  "version": "1.0",
+  "version": "1.0.1",
   "site": {
     "name": "string (required)",
     "url": "string (required) — canonical base URL",
@@ -168,7 +168,7 @@ When `?since=` or `?until=` is combined with `?q=`, the search parameter takes p
 
 ```json
 {
-  "openfeeder_version": "1.0",
+  "openfeeder_version": "1.0.1",
   "sync": {
     "since": "2026-02-01T00:00:00Z",
     "until": "2026-02-15T00:00:00Z",

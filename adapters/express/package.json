@@ -1,6 +1,6 @@
 {
   "name": "openfeeder-express",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "OpenFeeder middleware adapter for Express.js",
   "main": "src/index.js",
   "exports": {

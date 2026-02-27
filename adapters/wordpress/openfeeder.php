@@ -3,7 +3,7 @@
  * Plugin Name: OpenFeeder
  * Plugin URI:  https://github.com/openfeeder/openfeeder
  * Description: Expose your content to LLMs via the OpenFeeder protocol.
- * Version:     1.0.0
+ * Version:     1.0.1
  * Author:      OpenFeeder
  * Author URI:  https://github.com/openfeeder/openfeeder
  * License:     MIT
@@ -14,7 +14,7 @@ if ( ! defined( 'ABSPATH' ) ) {
 	exit;
 }
 
-define( 'OPENFEEDER_VERSION', '1.0.0' );
+define( 'OPENFEEDER_VERSION', '1.0.1' );
 define( 'OPENFEEDER_PLUGIN_DIR', plugin_dir_path( __FILE__ ) );
 
 // Load classes.

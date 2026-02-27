@@ -35,7 +35,7 @@ class DiscoveryController
         $description = $this->params->get('site_description', '') ?: null;
 
         $discovery = [
-            'version'      => '1.0',
+            'version'      => '1.0.1',
             'site'         => [
                 'name'        => $siteName,
                 'url'         => $siteUrl,

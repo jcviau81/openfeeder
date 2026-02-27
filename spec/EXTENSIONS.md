@@ -32,7 +32,7 @@ Extensions declare their capabilities in the discovery document:
 
 ```json
 {
-  "version": "1.0",
+  "version": "1.0.1",
   "site": { "name": "...", "url": "...", "language": "en", "description": "" },
   "feed": { "endpoint": "/openfeeder", "type": "paginated" },
   "capabilities": ["search", "products", "events"],

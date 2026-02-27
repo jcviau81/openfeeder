@@ -90,7 +90,7 @@ class OpenFeeder_WC_Discovery {
 		}
 
 		return array(
-			'version'      => '1.0',
+			'version'      => '1.0.1',
 			'site'         => array(
 				'name'        => get_bloginfo( 'name' ),
 				'url'         => home_url( '/' ),
@@ -120,7 +120,7 @@ class OpenFeeder_WC_Discovery {
 		}
 
 		$data = array(
-			'version'      => '1.0',
+			'version'      => '1.0.1',
 			'site'         => array(
 				'name'        => get_bloginfo( 'name' ),
 				'url'         => home_url( '/' ),
