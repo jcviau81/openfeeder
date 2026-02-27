@@ -11,6 +11,7 @@ import logging
 import re
 import urllib.robotparser
 from dataclasses import dataclass, field
+from email.utils import parsedate_to_datetime
 from urllib.parse import urljoin, urlparse, urldefrag
 from xml.etree import ElementTree
 
@@ -29,6 +30,7 @@ class Page:
     url: str
     html: str
     status: int
+    last_modified: str | None = None
 
 
 @dataclass
@@ -182,7 +184,15 @@ async def crawl(site_url: str, max_pages: int = 500) -> CrawlResult:
                 result.errors.append(f"GET {url}: HTTP {resp.status_code}")
                 continue
 
-            page = Page(url=url, html=resp.text, status=resp.status_code)
+            last_mod_dt = None
+            lm_header = resp.headers.get("last-modified")
+            if lm_header:
+                try:
+                    last_mod_dt = parsedate_to_datetime(lm_header).isoformat()
+                except Exception:
+                    logger.debug("Could not parse Last-Modified header for %s: %s", url, lm_header)
+
+            page = Page(url=url, html=resp.text, status=resp.status_code, last_modified=last_mod_dt)
             result.pages.append(page)
             logger.info("Crawled %s (%d/%d)", url, len(result.pages), max_pages)
 

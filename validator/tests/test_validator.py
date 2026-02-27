@@ -16,6 +16,7 @@ from checks import (
     check_headers,
     check_index,
     check_noise,
+    check_search,
     check_single_page,
     run_all_checks,
 )
@@ -589,6 +590,99 @@ class TestCheckNoise:
         client = MagicMock()
         results = check_noise(client, ctx)
         assert results[0].status == Status.SKIP
+
+
+# ===================================================================
+# check_search
+# ===================================================================
+
+VALID_SEARCH_RESPONSE = {
+    "schema": "openfeeder/1.0",
+    "url": "/hello",
+    "title": "Hello World",
+    "chunks": [
+        {"id": "abc_0", "text": "Search result chunk.", "type": "paragraph", "relevance": 0.9},
+    ],
+}
+
+VALID_SEARCH_INDEX_RESPONSE = {
+    "schema": "openfeeder/1.0",
+    "type": "index",
+    "page": 1,
+    "total_pages": 1,
+    "items": [
+        {"url": "/hello", "title": "Hello World", "published": "2025-01-01", "summary": "Hello..."},
+    ],
+}
+
+
+class TestCheckSearch:
+
+    def _ctx_with_search(self):
+        ctx = ValidationContext(base_url="https://example.com")
+        ctx.feed_endpoint = "https://example.com/openfeeder"
+        ctx.discovery = {"capabilities": ["search"]}
+        return ctx
+
+    def test_skip_when_no_search_capability(self):
+        ctx = ValidationContext(base_url="https://example.com")
+        ctx.feed_endpoint = "https://example.com/openfeeder"
+        ctx.discovery = {"capabilities": []}
+        client = MagicMock(spec=httpx.Client)
+        results = check_search(client, ctx)
+        assert results[0].status == Status.SKIP
+        assert "not in capabilities" in results[0].message
+
+    def test_skip_when_no_endpoint(self):
+        ctx = ValidationContext(base_url="https://example.com")
+        ctx.discovery = {"capabilities": ["search"]}
+        client = MagicMock(spec=httpx.Client)
+        results = check_search(client, ctx)
+        assert results[0].status == Status.SKIP
+
+    def test_pass_with_chunks_response(self):
+        client = _mock_client_get({
+            "openfeeder": _make_response(json_data=VALID_SEARCH_RESPONSE),
+        })
+        ctx = self._ctx_with_search()
+        results = check_search(client, ctx)
+        statuses = {r.name: r.status for r in results}
+        assert statuses["Search endpoint"] == Status.PASS
+        assert statuses["Search results"] == Status.PASS
+
+    def test_pass_with_items_response(self):
+        client = _mock_client_get({
+            "openfeeder": _make_response(json_data=VALID_SEARCH_INDEX_RESPONSE),
+        })
+        ctx = self._ctx_with_search()
+        results = check_search(client, ctx)
+        statuses = {r.name: r.status for r in results}
+        assert statuses["Search endpoint"] == Status.PASS
+        assert statuses["Search results"] == Status.PASS
+
+    def test_pass_with_404_no_results(self):
+        client = _mock_client_get({
+            "openfeeder": _make_response(status_code=404),
+        })
+        ctx = self._ctx_with_search()
+        results = check_search(client, ctx)
+        assert results[0].status == Status.PASS
+        assert "404" in results[0].message
+
+    def test_fail_with_500(self):
+        client = _mock_client_get({
+            "openfeeder": _make_response(status_code=500),
+        })
+        ctx = self._ctx_with_search()
+        results = check_search(client, ctx)
+        assert any(r.status == Status.FAIL and "500" in r.message for r in results)
+
+    def test_timeout(self):
+        client = MagicMock(spec=httpx.Client)
+        client.get.side_effect = httpx.ReadTimeout("timeout")
+        ctx = self._ctx_with_search()
+        results = check_search(client, ctx)
+        assert results[0].status == Status.FAIL
 
 
 # ===================================================================

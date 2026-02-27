@@ -440,6 +440,83 @@ def check_noise(client: httpx.Client, ctx: ValidationContext) -> list[CheckResul
 
 
 # ---------------------------------------------------------------------------
+# 6. Search check
+# ---------------------------------------------------------------------------
+
+def check_search(client: httpx.Client, ctx: ValidationContext) -> list[CheckResult]:
+    """Verify that the search endpoint works if search is in capabilities."""
+    results: list[CheckResult] = []
+
+    capabilities = ctx.discovery.get("capabilities", [])
+    if "search" not in capabilities:
+        results.append(CheckResult("Search endpoint", Status.SKIP,
+                                   "search not in capabilities"))
+        return results
+
+    if not ctx.feed_endpoint:
+        results.append(CheckResult("Search endpoint", Status.SKIP,
+                                   "No feed endpoint discovered"))
+        return results
+
+    sep = "&" if "?" in ctx.feed_endpoint else "?"
+    url = f"{ctx.feed_endpoint}{sep}{urlencode({'q': 'test'})}"
+
+    try:
+        resp = _get(client, url)
+    except httpx.TimeoutException:
+        results.append(CheckResult("Search endpoint", Status.FAIL,
+                                   "Request timed out"))
+        return results
+    except httpx.HTTPError as exc:
+        results.append(CheckResult("Search endpoint", Status.FAIL,
+                                   f"HTTP error: {exc}"))
+        return results
+
+    # Accept 200 (results found) or 404 (no results for "test" — still valid)
+    if resp.status_code == 200:
+        results.append(CheckResult("Search endpoint", Status.PASS,
+                                   "Responds with HTTP 200"))
+    elif resp.status_code == 404:
+        results.append(CheckResult("Search endpoint", Status.PASS,
+                                   "Responds with HTTP 404 (no results, but endpoint works)"))
+        return results
+    else:
+        results.append(CheckResult("Search endpoint", Status.FAIL,
+                                   f"HTTP {resp.status_code}"))
+        return results
+
+    try:
+        data = resp.json()
+    except Exception:
+        results.append(CheckResult("Search JSON parse", Status.FAIL,
+                                   "Response is not valid JSON"))
+        return results
+
+    # Verify response has expected structure (either index with items or single page with chunks)
+    if "items" in data:
+        items = data["items"]
+        if isinstance(items, list):
+            results.append(CheckResult("Search results", Status.PASS,
+                                       f"{len(items)} items returned"))
+        else:
+            results.append(CheckResult("Search results", Status.FAIL,
+                                       "items is not an array"))
+    elif "chunks" in data:
+        chunks = data["chunks"]
+        if isinstance(chunks, list):
+            results.append(CheckResult("Search results", Status.PASS,
+                                       f"{len(chunks)} chunks returned"))
+        else:
+            results.append(CheckResult("Search results", Status.FAIL,
+                                       "chunks is not an array"))
+    else:
+        results.append(CheckResult("Search results", Status.WARN,
+                                   "Response has neither items nor chunks array"))
+
+    return results
+
+
+# ---------------------------------------------------------------------------
 # Runner
 # ---------------------------------------------------------------------------
 
@@ -473,5 +550,8 @@ def run_all_checks(base_url: str, endpoint_override: str | None = None) -> Valid
 
         # 5. Noise check
         ctx.results.extend(check_noise(client, ctx))
+
+        # 6. Search
+        ctx.results.extend(check_search(client, ctx))
 
     return ctx

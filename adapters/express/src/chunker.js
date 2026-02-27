@@ -46,8 +46,15 @@ function countWords(text) {
  * @returns {'paragraph'|'heading'|'list'|'code'|'quote'}
  */
 function detectType(text) {
-  const lines = text.trim().split('\n');
+  const trimmed = text.trim();
+  const lines = trimmed.split('\n');
   const totalLines = lines.length;
+
+  // Code: fenced code block
+  if (/^```/.test(trimmed)) return 'code';
+
+  // Quote: blockquote markdown
+  if (/^>/.test(trimmed)) return 'quote';
 
   // Heading: single short line
   if (totalLines === 1 && countWords(text) < 15) {

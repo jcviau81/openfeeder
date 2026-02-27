@@ -104,6 +104,21 @@ RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
 
 The plugin automatically checks `REDIRECT_HTTP_AUTHORIZATION` as a fallback, so this one-line fix is all you need.
 
+## Performance Tip: Caching the Discovery Document
+
+The discovery document at `/.well-known/openfeeder.json` is currently served via PHP on every request. Since this document rarely changes (only when site settings are updated), high-traffic sites can benefit from caching it at the web server or CDN level.
+
+**Nginx example** — add to your server block:
+
+```nginx
+location = /.well-known/openfeeder.json {
+    proxy_cache_valid 200 1h;
+    add_header X-Cache-Status $upstream_cache_status;
+}
+```
+
+**CDN** — set a cache TTL of 1 hour (3600s) on the `/.well-known/openfeeder.json` path. The ETag and Last-Modified headers returned by the plugin support conditional requests out of the box.
+
 ## Requirements
 
 - WordPress 5.0+

@@ -615,7 +615,7 @@ def _extract_meta(soup: BeautifulSoup) -> dict:
 # Main Chunking Function
 # ---------------------------------------------------------------------------
 
-def chunk_html(url: str, html: str) -> ParsedPage:
+def chunk_html(url: str, html: str, page_updated: str | None = None) -> ParsedPage:
     """
     Parse HTML and extract clean, typed content chunks.
 
@@ -730,7 +730,7 @@ def chunk_html(url: str, html: str) -> ParsedPage:
         title=title,
         author=author,
         published=published,
-        updated=datetime.now(timezone.utc).isoformat(),
+        updated=page_updated or datetime.now(timezone.utc).isoformat(),
         language=legacy_meta["language"],
         summary=summary,
         chunks=chunks,

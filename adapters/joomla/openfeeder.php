@@ -118,7 +118,7 @@ if ($url) {
     }
 
     $text   = strip_tags($art->introtext . ' ' . $art->fulltext);
-    $chunks = chunk_text($text);
+    $chunks = chunk_text($text, (int)$art->id);
     echo json_encode([
         'schema'    => 'openfeeder/1.0',
         'url'       => $url,
@@ -154,13 +154,14 @@ $items = array_map(fn($a) => [
 
 echo json_encode(['schema' => 'openfeeder/1.0', 'type' => 'index', 'page' => $page, 'total_pages' => $totalPages, 'items' => $items], JSON_PRETTY_PRINT);
 
-function chunk_text(string $text, int $size = 500): array {
+function chunk_text(string $text, int $article_id = 0, int $size = 500): array {
     $paragraphs = preg_split('/\n{2,}/', trim($text));
     $chunks = []; $i = 0;
     foreach ($paragraphs as $p) {
         $p = trim($p);
         if (strlen($p) < 20) continue;
-        $chunks[] = ['id' => 'c' . (++$i), 'text' => $p, 'type' => 'paragraph', 'relevance' => null];
+        $chunks[] = ['id' => 'c-' . substr(md5($article_id . '-' . $i), 0, 12), 'text' => $p, 'type' => 'paragraph', 'relevance' => null];
+        $i++;
     }
-    return $chunks ?: [['id' => 'c1', 'text' => mb_substr($text, 0, $size), 'type' => 'paragraph', 'relevance' => null]];
+    return $chunks ?: [['id' => 'c-' . substr(md5($article_id . '-0'), 0, 12), 'text' => mb_substr($text, 0, $size), 'type' => 'paragraph', 'relevance' => null]];
 }

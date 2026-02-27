@@ -107,7 +107,7 @@ async def run_crawl() -> None:
 
         parsed_pages = []
         for page in result.pages:
-            parsed = chunk_html(page.url, page.html)
+            parsed = chunk_html(page.url, page.html, page_updated=page.last_modified)
             parsed_pages.append(parsed)
 
         total_chunks = indexer.index_pages(parsed_pages)
@@ -463,7 +463,16 @@ async def _process_update(action: str, urls: list[str]) -> tuple[int, list[str]]
                     errors.append(f"{full_url}: HTTP {resp.status_code}")
                     continue
 
-                parsed = chunk_html(full_url, resp.text)
+                lm = resp.headers.get("last-modified")
+                last_mod = None
+                if lm:
+                    try:
+                        from email.utils import parsedate_to_datetime
+                        last_mod = parsedate_to_datetime(lm).isoformat()
+                    except Exception:
+                        pass
+
+                parsed = chunk_html(full_url, resp.text, page_updated=last_mod)
                 indexer.index_page(parsed)
                 logger.info("Webhook: upserted %s (%d chunks)", full_url, len(parsed.chunks))
                 processed += 1
@@ -473,11 +482,6 @@ async def _process_update(action: str, urls: list[str]) -> tuple[int, list[str]]
             errors.append(f"{full_url}: {exc}")
 
     return processed, errors
-
-
-def _schedule_background_update(action: str, urls: list[str]) -> None:
-    """Fire-and-forget wrapper for background update tasks."""
-    asyncio.create_task(_process_update(action, urls))
 
 
 @app.post("/openfeeder/update", response_model=UpdateResponse)

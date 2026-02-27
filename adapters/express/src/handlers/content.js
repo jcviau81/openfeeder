@@ -9,8 +9,8 @@
 
 'use strict';
 
-const crypto = require('crypto');
 const { chunkContent, summarise } = require('../chunker');
+const { makeEtag } = require('../etag');
 
 const DEFAULT_LIMIT = 10;
 const MAX_LIMIT = 100;
@@ -20,15 +20,6 @@ const HEADERS = {
   'X-OpenFeeder': '1.0',
   'Access-Control-Allow-Origin': '*',
 };
-
-/**
- * Compute a quoted MD5 ETag from an arbitrary data object.
- * @param {unknown} data
- * @returns {string}
- */
-function makeEtag(data) {
-  return '"' + crypto.createHash('md5').update(JSON.stringify(data)).digest('hex').slice(0, 16) + '"';
-}
 
 /**
  * Return the RFC 7231 date string of the most recently published item.

@@ -33,7 +33,7 @@ class OpenFeeder_Discovery {
 				'endpoint' => '/openfeeder',
 				'type'     => 'paginated',
 			),
-			'capabilities' => array(),
+			'capabilities' => array( 'diff-sync' ),
 			'contact'      => get_option( 'admin_email', '' ),
 		);
 

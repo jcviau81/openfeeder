@@ -110,7 +110,7 @@ export async function discover(url: string, apiKey?: string): Promise<DiscoverRe
   // Method 4: llms.txt
   try {
     const resp = await httpGet(`${origin}/llms.txt`, undefined, resolvedKey);
-    if (resp.ok && /openfeeder/i.test(resp.text)) {
+    if (resp.ok && /openfeeder\.json/i.test(resp.text)) {
       return {
         supported: true,
         openfeeder_url: `${origin}/openfeeder`,

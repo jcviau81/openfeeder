@@ -133,6 +133,18 @@ const numberedList = '1. First\n2. Second\n3. Third\n4. Fourth';
 const numberedChunks = chunkContent(numberedList, '/numlist');
 check(numberedChunks[0].type === 'list', 'numbered list → list type');
 
+section('chunkContent — type detection: code');
+
+const codeTextFenced = '```\nconst x = 1;\nconsole.log(x);\n```';
+const codeChunksFenced = chunkContent(codeTextFenced, '/code-fenced');
+check(codeChunksFenced[0].type === 'code', 'fenced code block → code type');
+
+section('chunkContent — type detection: quote');
+
+const quoteText = '> This is a blockquote\n> with multiple lines of quoted text that is long enough.';
+const quoteChunks = chunkContent(quoteText, '/quote');
+check(quoteChunks[0].type === 'quote', 'blockquote → quote type');
+
 section('chunkContent — type detection: paragraph');
 
 const paraText = 'This is a longer paragraph that contains several sentences. ' +

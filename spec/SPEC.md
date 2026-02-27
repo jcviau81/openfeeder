@@ -388,4 +388,12 @@ Queries are logged as-is — if you need to anonymize, hash queries before sendi
 
 ---
 
+## See Also
+
+- [Extension Framework](EXTENSIONS.md) — How to build OpenFeeder extensions and the extension registry
+- [E-commerce Extension](ECOMMERCE.md) — Product catalogue support for e-commerce sites
+- [Security Guide](SECURITY.md) — Authentication, rate limiting, and deployment recommendations
+
+---
+
 Copyright (c) 2026 Jean-Christophe Viau. Licensed under [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/).

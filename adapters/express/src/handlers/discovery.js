@@ -6,22 +6,13 @@
 
 'use strict';
 
-const crypto = require('crypto');
+const { makeEtag } = require('../etag');
 
 const HEADERS = {
   'Content-Type': 'application/json',
   'X-OpenFeeder': '1.0',
   'Access-Control-Allow-Origin': '*',
 };
-
-/**
- * Compute a quoted MD5 ETag from an arbitrary data object.
- * @param {unknown} data
- * @returns {string}
- */
-function makeEtag(data) {
-  return '"' + crypto.createHash('md5').update(JSON.stringify(data)).digest('hex').slice(0, 16) + '"';
-}
 
 /**
  * @param {import('express').Request} req
@@ -41,7 +32,7 @@ function handleDiscovery(req, res, config) {
       endpoint: '/openfeeder',
       type: 'paginated',
     },
-    capabilities: ['search'],
+    capabilities: ['search', 'diff-sync'],
     contact: null,
   };
 
