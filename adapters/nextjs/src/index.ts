@@ -12,6 +12,8 @@
 
 export { handleContent } from "./handlers/content.js";
 export { handleDiscovery } from "./handlers/discovery.js";
+export { GatewayHandler, isLlmBot, detectContext } from "./gateway.js";
+export { GatewaySessionStore } from "./gateway-session.js";
 export type {
   OpenFeederConfig,
   OpenFeederItem,
@@ -26,6 +28,7 @@ export { chunkContent, summarise } from "./chunker.js";
 import { NextRequest, NextResponse } from "next/server";
 import { handleContent } from "./handlers/content.js";
 import { handleDiscovery } from "./handlers/discovery.js";
+import { GatewayHandler } from "./gateway.js";
 import type { OpenFeederConfig } from "./types.js";
 
 /**
@@ -58,6 +61,29 @@ export function createOpenFeederDiscoveryHandler(config: OpenFeederConfig) {
   return {
     GET(_request: NextRequest): NextResponse {
       return handleDiscovery(config);
+    },
+  };
+}
+
+/**
+ * Create a Next.js App Router route handler for /openfeeder/gateway/respond.
+ *
+ * @example
+ * // app/openfeeder/gateway/respond/route.ts
+ * import { createOpenFeederGatewayRespondHandler } from "@/lib/openfeeder";
+ * import config from "@/openfeeder.config";
+ * export const { POST } = createOpenFeederGatewayRespondHandler(config);
+ */
+export function createOpenFeederGatewayRespondHandler(config: OpenFeederConfig & { hasEcommerce?: boolean }) {
+  const handler = new GatewayHandler({
+    siteUrl: config.siteUrl,
+    hasEcommerce: config.hasEcommerce,
+  });
+
+  return {
+    async POST(request: NextRequest): Promise<NextResponse> {
+      const body = await request.json();
+      return handler.handleDialogueRespond(body);
     },
   };
 }

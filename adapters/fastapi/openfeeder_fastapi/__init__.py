@@ -16,6 +16,7 @@ Usage:
 """
 
 from .router import openfeeder_router
+from .gateway import GatewayHandler, is_llm_bot
 
-__all__ = ["openfeeder_router"]
+__all__ = ["openfeeder_router", "GatewayHandler", "is_llm_bot"]
 __version__ = "1.0.2"

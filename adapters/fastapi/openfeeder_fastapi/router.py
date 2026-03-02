@@ -19,6 +19,7 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse, Response
 
 from .chunker import chunk_content, summarise
+from .gateway import GatewayHandler
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +96,8 @@ def openfeeder_router(
     get_item: Callable,
     language: str = "en",
     site_description: str = "",
+    llm_gateway: bool = False,
+    has_ecommerce: bool = False,
 ) -> APIRouter:
     """
     Create a FastAPI APIRouter serving the OpenFeeder protocol.
@@ -121,6 +124,21 @@ def openfeeder_router(
         raise ValueError("[openfeeder] openfeeder_router requires callable get_items and get_item")
 
     router = APIRouter()
+
+    # ------------------------------------------------------------------
+    # LLM Gateway (optional)
+    # ------------------------------------------------------------------
+    _gateway_handler: GatewayHandler | None = None
+    if llm_gateway:
+        _gateway_handler = GatewayHandler(site_url=site_url, has_ecommerce=has_ecommerce)
+
+        @router.post("/openfeeder/gateway/respond")
+        async def gateway_respond(request: Request) -> Response:
+            body = await request.json()
+            return _gateway_handler.handle_dialogue_respond(body)
+
+    # Store on router for middleware access
+    router._gateway_handler = _gateway_handler  # type: ignore[attr-defined]
 
     # ------------------------------------------------------------------
     # Discovery endpoint
