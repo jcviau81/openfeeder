@@ -90,6 +90,7 @@ function startServer() {
         let statusCode = 200;
         const res = {
           _openfeederResults: 0,
+          locals: {},
           set(obj) {
             if (typeof obj === "string") {
               resHeaders[obj.toLowerCase()] = arguments[1];

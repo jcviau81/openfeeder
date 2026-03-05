@@ -110,6 +110,7 @@ function createServer(config) {
       let statusCode = 200;
       const res = {
         _openfeederResults: 0,
+          locals: {},
         set(obj) {
           for (const [k, v] of Object.entries(obj)) {
             resHeaders[k.toLowerCase()] = String(v);
