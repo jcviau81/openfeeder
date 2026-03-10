@@ -53,6 +53,181 @@ All configuration is via environment variables:
 | `EMBEDDING_MODEL` | No | `all-MiniLM-L6-v2` | Sentence-transformer model for embeddings |
 | `OPENFEEDER_WEBHOOK_SECRET` | No | — | If set, the `/openfeeder/update` webhook requires `Authorization: Bearer <secret>` |
 
+## Rate Limiting
+
+The sidecar includes built-in rate limiting and quota management to protect against abuse and excessive load. Rate limits are applied per-IP address and per-endpoint, with different thresholds for different operations.
+
+### Rate Limit Tiers
+
+By default:
+
+- **Discovery** (`/.well-known/openfeeder.json`): 100 requests/minute
+- **Browse/Fetch** (`/openfeeder`): 100 requests/minute
+- **Search** (`/openfeeder?q=...`): 30 requests/minute (more restrictive)
+- **Sync** (differential sync with `?since=`): 60 requests/minute
+- **Webhooks** (`/openfeeder/update`): 10 requests/minute
+
+Health check (`/healthz`) and discovery are not rate-limited.
+
+### Configuration
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `RATE_LIMIT_ENABLED` | `true` | Enable/disable rate limiting |
+| `RATE_LIMIT_DEFAULT_RPM` | `100` | Default requests per minute for all endpoints |
+| `RATE_LIMIT_SEARCH_RPM` | `30` | Search endpoint requests per minute |
+| `RATE_LIMIT_DISCOVER_RPM` | `100` | Discovery endpoint requests per minute |
+| `RATE_LIMIT_SYNC_RPM` | `60` | Sync endpoint requests per minute |
+| `RATE_LIMIT_WEBHOOK_RPM` | `10` | Webhook endpoint requests per minute |
+| `RATE_LIMIT_ADMIN_KEY` | — | Optional: Bearer token for `/admin/quota` admin endpoints |
+| `RATE_LIMIT_CLEANUP_INTERVAL` | `300` | Seconds between cleanup of stale quota buckets |
+
+### Rate Limit Response
+
+When a request exceeds the rate limit, the API returns **HTTP 429** with the following headers:
+
+```
+X-RateLimit-Limit: 30
+X-RateLimit-Window: 60
+X-RateLimit-Remaining: 0
+X-RateLimit-Reset: 1676543210
+```
+
+**Response Body:**
+
+```json
+{
+  "error": "RATE_LIMIT_EXCEEDED",
+  "message": "Too many requests. Please try again later.",
+  "retry_after": "1676543210"
+}
+```
+
+The `retry_after` field is a Unix timestamp indicating when the rate limit will be reset.
+
+### Handling Rate Limits
+
+When you receive a 429 response:
+
+1. **Wait** until `X-RateLimit-Reset` (Unix timestamp)
+2. **Backoff exponentially** — don't immediately retry; wait 1s, 2s, 4s, etc.
+3. **Batch requests** — combine multiple queries into a single request where possible
+4. **Cache results** — avoid repeated queries for the same data
+5. **Contact support** — if you need higher limits, reach out with your use case
+
+### Admin Endpoints
+
+If `RATE_LIMIT_ADMIN_KEY` is configured, two admin endpoints are available:
+
+#### Check Current Quota
+
+```
+GET /admin/quota
+Authorization: Bearer <RATE_LIMIT_ADMIN_KEY>
+```
+
+Optional query parameter:
+- `ip` — Filter to a specific IP address
+
+**Response:**
+
+```json
+{
+  "status": "ok",
+  "timestamp": "2026-03-10T06:57:00+00:00",
+  "quota": {
+    "total_ips": 5,
+    "total_buckets": 18,
+    "ips": {
+      "192.168.1.1": {
+        "discover": { "count": 2, "limit": 100, "remaining": 98, "percent_used": 2.0 },
+        "search": { "count": 5, "limit": 30, "remaining": 25, "percent_used": 16.7 }
+      }
+    }
+  }
+}
+```
+
+#### Reset Quota
+
+```
+POST /admin/quota/reset
+Authorization: Bearer <RATE_LIMIT_ADMIN_KEY>
+```
+
+Optional query parameter:
+- `ip` — Reset only this IP (all IPs if omitted)
+
+**Response:**
+
+```json
+{
+  "status": "ok",
+  "timestamp": "2026-03-10T06:57:00+00:00",
+  "reset": {
+    "status": "ok",
+    "all_reset": true,
+    "buckets_reset": 42
+  }
+}
+```
+
+### Examples
+
+**Checking rate limit status after a request:**
+
+```bash
+# Make a request and check the headers
+curl -i http://localhost:8080/openfeeder?q=test
+
+HTTP/1.1 200 OK
+X-RateLimit-Limit: 30
+X-RateLimit-Remaining: 28
+X-RateLimit-Reset: 1676543210
+```
+
+**Handling 429 responses:**
+
+```bash
+#!/bin/bash
+# Retry with exponential backoff
+
+retry_with_backoff() {
+  local url=$1
+  local max_retries=5
+  local wait_time=1
+  
+  for i in $(seq 1 $max_retries); do
+    response=$(curl -s -w "\n%{http_code}" "$url")
+    http_code=$(echo "$response" | tail -n1)
+    body=$(echo "$response" | head -n-1)
+    
+    if [ "$http_code" = "200" ]; then
+      echo "$body"
+      return 0
+    elif [ "$http_code" = "429" ]; then
+      retry_after=$(echo "$body" | jq -r '.retry_after')
+      echo "Rate limited. Retrying after ${retry_after}..."
+      sleep "$wait_time"
+      wait_time=$((wait_time * 2))
+    else
+      echo "Error: $http_code"
+      return 1
+    fi
+  done
+  
+  return 1
+}
+
+retry_with_backoff "http://localhost:8080/openfeeder?q=trump"
+```
+
+**Disabling rate limiting for development:**
+
+```bash
+RATE_LIMIT_ENABLED=false SITE_URL=https://example.com python main.py
+```
+
 ## API Endpoints
 
 ### Discovery Document

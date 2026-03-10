@@ -38,6 +38,11 @@ from analytics import Analytics, detect_bot
 from chunker import chunk_html
 from crawler import crawl
 from indexer import Indexer
+from rate_limiter import (
+    get_rate_limiter,
+    init_rate_limiter,
+    shutdown_rate_limiter,
+)
 from sync_utils import (
     add_tombstone,
     encode_sync_token,
@@ -138,6 +143,9 @@ async def lifespan(app: FastAPI):
     indexer = Indexer(model_name=EMBEDDING_MODEL)
     _load_tombstones()
 
+    # Initialize rate limiter
+    await init_rate_limiter()
+
     # Initial crawl in background so the server starts responding immediately
     asyncio.create_task(run_crawl())
 
@@ -148,6 +156,9 @@ async def lifespan(app: FastAPI):
     logger.info("Scheduled re-crawl every %d seconds.", CRAWL_INTERVAL)
 
     yield
+
+    # Shutdown rate limiter
+    await shutdown_rate_limiter()
 
     if scheduler:
         scheduler.shutdown(wait=False)
@@ -163,13 +174,45 @@ app = FastAPI(
 
 
 # ---------------------------------------------------------------------------
-# Middleware — add OpenFeeder headers to every response
+# Middleware — rate limiting and headers
 # ---------------------------------------------------------------------------
 
 @app.middleware("http")
-async def add_openfeeder_headers(request: Request, call_next):
+async def rate_limit_middleware(request: Request, call_next):
+    """Apply rate limiting to requests."""
+    # Skip rate limiting for internal endpoints
+    if request.url.path in ["/healthz", "/.well-known/openfeeder.json"]:
+        response = await call_next(request)
+        response.headers["X-OpenFeeder"] = "1.0"
+        return response
+
+    # Get client IP
+    client_ip = request.client.host if request.client else "unknown"
+    endpoint = request.url.path
+
+    # Check rate limit
+    limiter = get_rate_limiter()
+    allowed, rate_limit_headers = await limiter.check_rate_limit(client_ip, endpoint)
+
+    if not allowed:
+        return JSONResponse(
+            status_code=429,
+            content={
+                "error": "RATE_LIMIT_EXCEEDED",
+                "message": "Too many requests. Please try again later.",
+                "retry_after": rate_limit_headers.get("X-RateLimit-Reset"),
+            },
+            headers=rate_limit_headers,
+        )
+
+    # Continue processing
     response = await call_next(request)
     response.headers["X-OpenFeeder"] = "1.0"
+    
+    # Add rate limit headers to response
+    for key, value in rate_limit_headers.items():
+        response.headers[key] = value
+    
     return response
 
 
@@ -554,6 +597,71 @@ def _error_response(code: str, message: str, status: int = 400) -> JSONResponse:
             },
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Admin endpoints — quota management
+# ---------------------------------------------------------------------------
+
+def _check_admin_auth(request: Request) -> None:
+    """Verify admin API key if configured."""
+    limiter = get_rate_limiter()
+    if not limiter.config.admin_key:
+        # Admin endpoints disabled if no key is configured
+        raise HTTPException(
+            status_code=403,
+            detail="Admin endpoints are disabled",
+        )
+
+    auth_header = request.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing Bearer token")
+    
+    token = auth_header[len("Bearer "):]
+    if not hmac.compare_digest(token, limiter.config.admin_key):
+        raise HTTPException(status_code=403, detail="Invalid admin key")
+
+
+@app.get("/admin/quota")
+async def get_quota(request: Request, ip: str | None = Query(None)):
+    """
+    Get current rate limit quota status.
+
+    Optional query parameters:
+        - ip: Filter to a specific IP address
+
+    Requires:
+        - Authorization: Bearer <RATE_LIMIT_ADMIN_KEY>
+    """
+    _check_admin_auth(request)
+    limiter = get_rate_limiter()
+    quota = await limiter.get_quota(ip=ip)
+    return {
+        "status": "ok",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "quota": quota,
+    }
+
+
+@app.post("/admin/quota/reset")
+async def reset_quota(request: Request, ip: str | None = Query(None)):
+    """
+    Reset rate limit counters for an IP (or all if ip not specified).
+
+    Optional query parameters:
+        - ip: Reset only this IP (all IPs if omitted)
+
+    Requires:
+        - Authorization: Bearer <RATE_LIMIT_ADMIN_KEY>
+    """
+    _check_admin_auth(request)
+    limiter = get_rate_limiter()
+    result = await limiter.reset_quota(ip=ip)
+    return {
+        "status": "ok",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "reset": result,
+    }
 
 
 # ---------------------------------------------------------------------------
