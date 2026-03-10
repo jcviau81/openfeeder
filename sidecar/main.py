@@ -190,7 +190,7 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(
     title="OpenFeeder Sidecar",
-    version="1.0.2",
+    version="1.1.1",
     docs_url=None,
     redoc_url=None,
     lifespan=lifespan,
