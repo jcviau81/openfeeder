@@ -299,6 +299,126 @@ X-OpenFeeder: 1.0
 X-OpenFeeder-Cache: HIT | MISS
 ```
 
+### 9.1 Rate Limiting Headers
+
+To help clients understand and respect rate limits, servers SHOULD include these headers in all responses:
+
+```
+X-RateLimit-Limit: 100
+X-RateLimit-Remaining: 99
+X-RateLimit-Reset: 1678533600
+```
+
+| Header | Type | Description |
+|--------|------|-------------|
+| `X-RateLimit-Limit` | integer | Max requests allowed per time window (default: 100 per minute) |
+| `X-RateLimit-Remaining` | integer | Number of requests remaining in the current window |
+| `X-RateLimit-Reset` | unix timestamp | Time when the rate limit window resets |
+
+**Default rate limit:** 100 requests per minute per client IP address.
+
+Servers MAY customize this limit based on client API keys, IP reputation, or other factors. For example:
+- Trusted AI systems: 500 requests/minute
+- New clients: 60 requests/minute
+- Aggressive crawlers: 10 requests/minute
+
+### 9.2 Rate Limit Error Handling
+
+When a client exceeds the rate limit, servers MUST:
+
+1. Return HTTP 429 (Too Many Requests)
+2. Include rate limit headers showing the reset time
+3. Optionally include a `Retry-After` header (seconds to wait)
+
+**Example response:**
+
+```
+HTTP/1.1 429 Too Many Requests
+X-RateLimit-Limit: 100
+X-RateLimit-Remaining: 0
+X-RateLimit-Reset: 1678533600
+Retry-After: 30
+
+{
+  "schema": "openfeeder/1.0",
+  "error": {
+    "code": "RATE_LIMITED",
+    "message": "Rate limit exceeded. Please retry after 30 seconds."
+  }
+}
+```
+
+Clients MUST respect the `X-RateLimit-Reset` header and not retry until that time.
+
+### 9.3 Implementation Examples
+
+#### Nginx
+
+```nginx
+# Rate limiting zone: 100 requests per minute per IP
+limit_req_zone $binary_remote_addr zone=openfeeder:10m rate=100r/m;
+
+server {
+    location ~ ^/(openfeeder|\.well-known/openfeeder) {
+        # Enforce rate limit with 10-request burst
+        limit_req zone=openfeeder burst=10 nodelay;
+        limit_req_status 429;
+        
+        # Return rate limit headers
+        add_header X-RateLimit-Limit "100" always;
+        add_header X-RateLimit-Remaining $limit_req_status always;
+        add_header X-RateLimit-Reset $time_unix always;
+        
+        proxy_pass http://your_app;
+    }
+}
+```
+
+#### Express.js
+
+```javascript
+const rateLimit = require('express-rate-limit');
+
+const openfeederLimiter = rateLimit({
+  windowMs: 60 * 1000,  // 1 minute
+  max: 100,              // 100 requests per minute
+  standardHeaders: true, // Return rate limit info in headers
+  legacyHeaders: false,  // Disable X-RateLimit-* headers
+  handler: (req, res) => {
+    res.status(429).json({
+      schema: "openfeeder/1.0",
+      error: {
+        code: "RATE_LIMITED",
+        message: "Rate limit exceeded"
+      }
+    });
+  }
+});
+
+app.use('/openfeeder', openfeederLimiter);
+app.use('/.well-known/openfeeder.json', openfeederLimiter);
+```
+
+#### Python/FastAPI
+
+```python
+from slowapi import Limiter
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
+
+limiter = Limiter(key_func=get_remote_address)
+
+@app.get("/openfeeder")
+@limiter.limit("100/minute")
+async def openfeeder(request: Request):
+    return await get_openfeeder_content(request)
+
+@app.get("/.well-known/openfeeder.json")
+@limiter.limit("100/minute")
+async def discovery(request: Request):
+    return await get_discovery_document(request)
+```
+
 ---
 
 ## 10. Security & Privacy

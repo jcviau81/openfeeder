@@ -420,15 +420,17 @@ All adapters validate the `?url=` parameter to accept only **relative paths** (n
 
 All responses include informational rate limit headers:
 ```
-X-RateLimit-Limit: 60
-X-RateLimit-Remaining: 60
+X-RateLimit-Limit: 100
+X-RateLimit-Remaining: 100
 X-RateLimit-Reset: <unix_timestamp>
 ```
+
+**Recommended default:** 100 requests per minute per client IP.
 
 Enforce rate limiting at the server level with **Nginx**:
 
 ```nginx
-limit_req_zone $binary_remote_addr zone=openfeeder:10m rate=60r/m;
+limit_req_zone $binary_remote_addr zone=openfeeder:10m rate=100r/m;
 
 location ~ ^/(openfeeder|\.well-known/openfeeder) {
     limit_req zone=openfeeder burst=10 nodelay;
@@ -437,9 +439,57 @@ location ~ ^/(openfeeder|\.well-known/openfeeder) {
 }
 ```
 
+**For more details**, see [Rate Limiting in the Implementation Guide](docs/01_IMPLEMENTATION_GUIDE.md#rate-limiting).
+
 ### Query Sanitization
 
 The `?q=` parameter is limited to 200 characters and HTML is stripped before use.
+
+---
+
+## Documentation
+
+### Getting Started
+- **[Implementation Guide](docs/01_IMPLEMENTATION_GUIDE.md)** — Step-by-step guide to implementing OpenFeeder
+- **[Step-by-Step Tutorial](docs/02_STEP_BY_STEP_TUTORIAL.md)** — Hands-on walkthrough with code examples
+- **[Quick Reference](docs/QUICK_REFERENCE.md)** — Quick lookup for common patterns
+
+### References
+- **[Schema Reference](docs/03_SCHEMA_REFERENCE.md)** — Detailed schema documentation
+- **[Code Examples](docs/04_CODE_EXAMPLES.md)** — Working code samples across frameworks
+- **[Specification](spec/SPEC.md)** — Full protocol specification
+- **[Security Guide](spec/SECURITY.md)** — Security, authentication, rate limiting
+
+### Compliance & Operations
+- **[Testing Guide](docs/05_TESTING_GUIDE.md)** — How to test your OpenFeeder implementation
+- **[Deployment Checklist](docs/06_DEPLOYMENT_CHECKLIST.md)** — Production readiness checklist
+- **[GDPR Compliance Guide](GDPR_COMPLIANCE.md)** — GDPR responsibilities and best practices
+
+---
+
+## Changelog
+
+### v1.1.0 (March 10, 2026)
+
+**New Features:**
+- Rate limiting support with standardized headers and Nginx examples
+- Comprehensive implementation guide with step-by-step tutorials
+- GDPR compliance documentation clarifying site owner responsibilities
+- 7 detailed documentation files for developers
+
+**Improvements:**
+- Enhanced error handling documentation for 429 responses
+- Rate limit headers specification in SPEC.md
+- Best practices guide for GDPR-compliant implementations
+- Access control examples and authentication patterns
+
+**Documentation:**
+- See [RELEASE_NOTES.md](RELEASE_NOTES.md) for full v1.1.0 release information
+
+**Backward Compatibility:**
+- ✅ Fully backward compatible with v1.0
+- No breaking changes
+- Existing implementations work without modification
 
 ---
 
@@ -449,7 +499,7 @@ PRs welcome for:
 - New adapter implementations (Next.js, Astro, Django, Rails...)
 - Spec improvements
 - Validator CLI tool
-- Documentation
+- Documentation improvements
 
 ---
 
