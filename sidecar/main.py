@@ -50,6 +50,11 @@ from sync_utils import (
     _load_tombstones,
     parse_since,
 )
+from umami_client import (
+    init_umami_client,
+    get_umami_client,
+    shutdown_umami_client,
+)
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -66,6 +71,12 @@ ANALYTICS_PROVIDER = os.environ.get("ANALYTICS_PROVIDER", "none")
 ANALYTICS_URL = os.environ.get("ANALYTICS_URL", "")
 ANALYTICS_SITE_ID = os.environ.get("ANALYTICS_SITE_ID", "")
 ANALYTICS_API_KEY = os.environ.get("ANALYTICS_API_KEY", "")
+
+# Umami Analytics (optional, separate from legacy analytics)
+UMAMI_URL = os.environ.get("UMAMI_URL", "")
+UMAMI_SITE_ID = os.environ.get("UMAMI_SITE_ID", "")
+UMAMI_API_KEY = os.environ.get("UMAMI_API_KEY", "")
+UMAMI_ENABLED = os.environ.get("UMAMI_ENABLED", "true").lower() != "false"
 
 if not SITE_URL:
     sys.exit("FATAL: SITE_URL environment variable is required.")
@@ -93,6 +104,9 @@ _last_crawl_ts: float = 0.0
 _crawl_running = False
 
 analytics = Analytics(ANALYTICS_PROVIDER, ANALYTICS_URL, ANALYTICS_SITE_ID, ANALYTICS_API_KEY)
+
+# Umami client (initialized on startup)
+umami_client = None
 
 
 async def run_crawl() -> None:
@@ -135,7 +149,7 @@ async def run_crawl() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Start the indexer, run the initial crawl, and schedule periodic re-crawls."""
-    global indexer, scheduler
+    global indexer, scheduler, umami_client
 
     if not WEBHOOK_SECRET:
         logger.warning("OPENFEEDER_WEBHOOK_SECRET is not set — webhook endpoint is publicly accessible")
@@ -145,6 +159,13 @@ async def lifespan(app: FastAPI):
 
     # Initialize rate limiter
     await init_rate_limiter()
+
+    # Initialize Umami analytics client
+    if UMAMI_ENABLED and UMAMI_URL and UMAMI_SITE_ID:
+        umami_client = init_umami_client(UMAMI_URL, UMAMI_SITE_ID, UMAMI_API_KEY)
+        logger.info("Umami analytics initialized: %s", UMAMI_URL)
+    else:
+        logger.info("Umami analytics disabled")
 
     # Initial crawl in background so the server starts responding immediately
     asyncio.create_task(run_crawl())
@@ -159,6 +180,9 @@ async def lifespan(app: FastAPI):
 
     # Shutdown rate limiter
     await shutdown_rate_limiter()
+
+    # Shutdown Umami client
+    await shutdown_umami_client()
 
     if scheduler:
         scheduler.shutdown(wait=False)
@@ -179,22 +203,58 @@ app = FastAPI(
 
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
-    """Apply rate limiting to requests."""
+    """Apply rate limiting to requests and track analytics."""
+    start_time = time.time()
+    endpoint = request.url.path
+    method = request.method
+    client_ip = request.client.host if request.client else "unknown"
+    user_agent = request.headers.get("user-agent", "")
+    
     # Skip rate limiting for internal endpoints
-    if request.url.path in ["/healthz", "/.well-known/openfeeder.json"]:
+    if endpoint in ["/healthz", "/.well-known/openfeeder.json"]:
         response = await call_next(request)
         response.headers["X-OpenFeeder"] = "1.0"
+        
+        # Track Umami event
+        duration_ms = int((time.time() - start_time) * 1000)
+        bot_name, bot_family = detect_bot(user_agent)
+        umami = get_umami_client()
+        if umami:
+            await umami.track_api_request(
+                hostname=SITE_NAME,
+                endpoint=endpoint,
+                method=method,
+                status_code=response.status_code,
+                duration_ms=duration_ms,
+                user_agent=user_agent,
+                bot_name=bot_name,
+                bot_family=bot_family,
+            )
+        
         return response
-
-    # Get client IP
-    client_ip = request.client.host if request.client else "unknown"
-    endpoint = request.url.path
 
     # Check rate limit
     limiter = get_rate_limiter()
     allowed, rate_limit_headers = await limiter.check_rate_limit(client_ip, endpoint)
 
     if not allowed:
+        # Track rate limit hit
+        duration_ms = int((time.time() - start_time) * 1000)
+        umami = get_umami_client()
+        if umami:
+            reset_ts = int(float(rate_limit_headers.get("X-RateLimit-Reset", time.time())))
+            limit = int(rate_limit_headers.get("X-RateLimit-Limit", 100))
+            remaining = int(rate_limit_headers.get("X-RateLimit-Remaining", 0))
+            
+            await umami.track_rate_limit_hit(
+                hostname=SITE_NAME,
+                client_ip=client_ip,
+                endpoint=endpoint,
+                limit=limit,
+                remaining=remaining,
+                reset_timestamp=reset_ts,
+            )
+        
         return JSONResponse(
             status_code=429,
             content={
@@ -212,6 +272,33 @@ async def rate_limit_middleware(request: Request, call_next):
     # Add rate limit headers to response
     for key, value in rate_limit_headers.items():
         response.headers[key] = value
+    
+    # Track API request to Umami
+    duration_ms = int((time.time() - start_time) * 1000)
+    bot_name, bot_family = detect_bot(user_agent)
+    umami = get_umami_client()
+    if umami and response.status_code < 500:  # Only track successful/client errors
+        await umami.track_api_request(
+            hostname=SITE_NAME,
+            endpoint=endpoint,
+            method=method,
+            status_code=response.status_code,
+            duration_ms=duration_ms,
+            user_agent=user_agent,
+            bot_name=bot_name,
+            bot_family=bot_family,
+        )
+        
+        # Track bot activity if it's a known bot
+        if bot_family != "unknown":
+            await umami.track_bot_activity(
+                hostname=SITE_NAME,
+                bot_name=bot_name,
+                bot_family=bot_family,
+                endpoint=endpoint,
+                status_code=response.status_code,
+                duration_ms=duration_ms,
+            )
     
     return response
 
@@ -348,6 +435,19 @@ async def content(
         }
 
         total = len(added) + len(updated) + len(deleted)
+        
+        # Track sync event to Umami
+        sync_duration_ms = int((time.time() - start_time) * 1000)
+        umami = get_umami_client()
+        if umami:
+            await umami.track_sync(
+                hostname=SITE_NAME,
+                added_count=len(added),
+                updated_count=len(updated),
+                deleted_count=len(deleted),
+                duration_ms=sync_duration_ms,
+            )
+        
         await _track("sync", total, cached)
         return JSONResponse(content=body, headers={"X-OpenFeeder-Cache": "MISS"})
 
@@ -374,6 +474,19 @@ async def content(
         if min_score > 0.0:
             results = [r for r in results if r.relevance >= min_score]
         if not results:
+            # Track search with 0 results
+            search_duration_ms = int((time.time() - start_time) * 1000)
+            umami = get_umami_client()
+            if umami:
+                await umami.track_search(
+                    hostname=SITE_NAME,
+                    query=q,
+                    results_count=0,
+                    duration_ms=search_duration_ms,
+                    min_score=min_score,
+                    url_filter=url,
+                )
+            
             await _track("search", 0, cached)
             return _error_response("NOT_FOUND", "No results found for query.", 404)
 
@@ -390,6 +503,19 @@ async def content(
             }
             for r in results
         ]
+
+        # Track search event to Umami
+        search_duration_ms = int((time.time() - start_time) * 1000)
+        umami = get_umami_client()
+        if umami:
+            await umami.track_search(
+                hostname=SITE_NAME,
+                query=q,
+                results_count=len(chunks),
+                duration_ms=search_duration_ms,
+                min_score=min_score,
+                url_filter=url,
+            )
 
         response = JSONResponse(
             content={

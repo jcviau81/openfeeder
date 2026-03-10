@@ -53,6 +53,49 @@ All configuration is via environment variables:
 | `EMBEDDING_MODEL` | No | `all-MiniLM-L6-v2` | Sentence-transformer model for embeddings |
 | `OPENFEEDER_WEBHOOK_SECRET` | No | — | If set, the `/openfeeder/update` webhook requires `Authorization: Bearer <secret>` |
 
+### Umami Analytics Configuration
+
+Optional: Enable Umami analytics to track API requests, search queries, bot activity, and errors.
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `UMAMI_URL` | No | — | Base URL of Umami instance (e.g., `https://analytics.snaf.foo`) |
+| `UMAMI_SITE_ID` | No | — | Website ID in Umami |
+| `UMAMI_API_KEY` | No | — | Optional API key for authentication |
+| `UMAMI_ENABLED` | No | `true` | Enable/disable analytics tracking |
+
+**Example docker-compose.yml:**
+
+```yaml
+services:
+  openfeeder:
+    build: ./sidecar
+    environment:
+      - SITE_URL=https://example.com
+      - UMAMI_URL=https://analytics.snaf.foo
+      - UMAMI_SITE_ID=my-site-id-from-umami
+      - UMAMI_API_KEY=optional-api-key
+```
+
+**Setup Guide:**
+
+1. Create a new website in Umami and note its ID
+2. Set `UMAMI_URL` to your Umami instance URL
+3. Set `UMAMI_SITE_ID` to the website ID from step 1
+4. Optionally set `UMAMI_API_KEY` if your Umami instance requires authentication
+5. Restart the sidecar — analytics will begin automatically
+
+The sidecar tracks the following events:
+
+- **api.request** — All API requests (endpoint, method, status, duration)
+- **api.bot** — Activity from identified LLM bots (Claude, GPT, Perplexity, etc.)
+- **api.search** — Search queries and result counts
+- **api.ratelimit** — Rate limit violations
+- **api.error** — Errors and exceptions
+- **api.sync** — Differential sync requests
+
+See [Custom Events Reference](#custom-events-reference) below for detailed field descriptions.
+
 ## Rate Limiting
 
 The sidecar includes built-in rate limiting and quota management to protect against abuse and excessive load. Rate limits are applied per-IP address and per-endpoint, with different thresholds for different operations.
@@ -398,6 +441,207 @@ pip install -r requirements.txt
 # Run directly (needs SITE_URL)
 SITE_URL=https://example.com python main.py
 ```
+
+## Umami Analytics Dashboard
+
+The sidecar includes a pre-configured dashboard definition for Umami. See `dashboard_config.json` for the full specification.
+
+### Dashboard Widgets
+
+The **"OpenFeeder API Metrics"** dashboard includes:
+
+- **Requests per Hour** — Line chart showing total API traffic over time
+- **LLM Bot Activity Breakdown** — Pie chart of requests by bot family (Claude, GPT, Perplexity, etc.)
+- **Rate Limit Violations** — Area chart showing rate limit hits over time
+- **Error Distribution** — Bar chart of errors by type and status code
+- **Response Time Percentiles** — 95th and 99th percentile response times
+- **Top API Endpoints** — Table of most-accessed endpoints with request counts and avg response time
+- **Search Performance** — Search query count, average results, duration, and zero-result searches
+- **Sync Statistics** — Differential sync activity (items added/updated/deleted)
+
+### Custom Events Reference
+
+#### api.request
+
+Fired on every API request to the OpenFeeder endpoints.
+
+**Properties:**
+
+- `endpoint` — API endpoint path (e.g., `/openfeeder`, `/.well-known/openfeeder.json`)
+- `method` — HTTP method (GET, POST)
+- `status_code` — HTTP response status code
+- `duration_ms` — Response time in milliseconds
+- `bot_name` — Identified bot name (e.g., `ClaudeBot`, `GPTBot`)
+- `bot_family` — Bot family (e.g., `anthropic`, `openai`, `perplexity`)
+- `user_agent_short` — First 100 chars of User-Agent header
+
+**Example queries:**
+
+```
+# Average response time by endpoint
+SELECT endpoint, AVG(duration_ms) as avg_response_time
+WHERE event_name = 'api.request'
+GROUP BY endpoint
+ORDER BY avg_response_time DESC
+
+# Requests by bot family
+SELECT bot_family, COUNT(*) as requests
+WHERE event_name = 'api.request' AND bot_family != 'unknown'
+GROUP BY bot_family
+```
+
+#### api.bot
+
+Fired for all requests from identified LLM bots (more granular than api.request).
+
+**Properties:**
+
+- `bot_name` — Bot identifier (e.g., `ClaudeBot`, `GPTBot`)
+- `bot_family` — Bot family (e.g., `anthropic`, `openai`)
+- `endpoint` — Endpoint accessed
+- `status_code` — Response status
+- `duration_ms` — Response time in milliseconds
+
+**Example queries:**
+
+```
+# Bots accessing search endpoint
+SELECT bot_family, COUNT(*) as searches
+WHERE event_name = 'api.bot' AND endpoint = '/openfeeder' AND query != ''
+GROUP BY bot_family
+
+# Claude requests per day
+SELECT DATE(timestamp) as date, COUNT(*) as requests
+WHERE event_name = 'api.bot' AND bot_family = 'anthropic'
+GROUP BY DATE(timestamp)
+```
+
+#### api.search
+
+Fired on every semantic search query.
+
+**Properties:**
+
+- `query_hash` — SHA256 hash of query (first 16 chars) — stored for analytics, not the actual query
+- `query_length` — Number of characters in query
+- `results_count` — Number of results returned
+- `duration_ms` — Search duration in milliseconds
+- `min_score_filter` — Score filter applied (if any)
+- `has_url_filter` — Whether a URL filter was applied
+
+**Example queries:**
+
+```
+# Search performance over time
+SELECT DATE_TRUNC(timestamp, HOUR) as hour,
+       COUNT(*) as searches,
+       AVG(results_count) as avg_results,
+       AVG(duration_ms) as avg_duration_ms
+WHERE event_name = 'api.search'
+GROUP BY hour
+ORDER BY hour DESC
+
+# Searches with 0 results
+SELECT COUNT(*) as zero_result_searches
+WHERE event_name = 'api.search' AND results_count = 0
+```
+
+#### api.ratelimit
+
+Fired when a client exceeds rate limits.
+
+**Properties:**
+
+- `client_ip_hash` — SHA256 hash of client IP (first 16 chars) — privacy-preserving
+- `endpoint` — API endpoint that was rate limited
+- `limit` — Rate limit per window
+- `remaining` — Remaining requests after this hit
+- `reset_timestamp` — Unix timestamp when limit resets
+
+**Example queries:**
+
+```
+# Rate limit hits by endpoint
+SELECT endpoint, COUNT(*) as violations
+WHERE event_name = 'api.ratelimit'
+GROUP BY endpoint
+ORDER BY violations DESC
+
+# Most aggressive clients (by IP hash)
+SELECT client_ip_hash, COUNT(*) as violations
+WHERE event_name = 'api.ratelimit'
+GROUP BY client_ip_hash
+ORDER BY violations DESC
+LIMIT 10
+```
+
+#### api.error
+
+Fired when the API encounters an error.
+
+**Properties:**
+
+- `error_type` — Error class name (e.g., `ValueError`, `IndexError`)
+- `status_code` — HTTP status code returned
+- `message` — Error message (truncated to 200 chars)
+- `endpoint` — Endpoint where error occurred
+- `traceback` — Optional traceback for debugging (truncated to 500 chars)
+
+**Example queries:**
+
+```
+# Error rate by endpoint
+SELECT endpoint, COUNT(*) as errors
+WHERE event_name = 'api.error'
+GROUP BY endpoint
+
+# Recent errors
+SELECT timestamp, error_type, message
+WHERE event_name = 'api.error'
+ORDER BY timestamp DESC
+LIMIT 20
+```
+
+#### api.sync
+
+Fired on differential sync requests.
+
+**Properties:**
+
+- `added` — Number of items added
+- `updated` — Number of items updated
+- `deleted` — Number of items deleted
+- `duration_ms` — Sync duration in milliseconds
+- `total` — Total items (added + updated + deleted)
+
+**Example queries:**
+
+```
+# Sync activity over time
+SELECT DATE_TRUNC(timestamp, DAY) as day,
+       COUNT(*) as syncs,
+       SUM(total) as total_items
+WHERE event_name = 'api.sync'
+GROUP BY day
+ORDER BY day DESC
+
+# Largest syncs
+SELECT timestamp, total as items, duration_ms
+WHERE event_name = 'api.sync'
+ORDER BY total DESC
+LIMIT 10
+```
+
+### Alerting Recommendations
+
+Set up alerts in Umami for:
+
+1. **High Error Rate** — More than 10 errors in 1 hour
+2. **Rate Limit Abuse** — More than 50 rate limit violations in 1 hour
+3. **Slow Responses** — 95th percentile response time exceeds 5 seconds
+4. **Search Degradation** — Over 50% of searches return zero results
+
+See `dashboard_config.json` for the full alert configuration.
 
 ## License
 
