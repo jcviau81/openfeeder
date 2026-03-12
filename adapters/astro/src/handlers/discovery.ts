@@ -32,6 +32,8 @@ export function handleDiscovery(request: Request, config: OpenFeederConfig): Res
       type: "paginated",
     },
     capabilities: ["search"],
+    // Note: We intentionally do NOT expose admin email for privacy/security.
+    // Sites can provide contact via LLM Gateway settings if desired.
     contact: null,
   };
 

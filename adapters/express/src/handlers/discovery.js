@@ -33,6 +33,8 @@ function handleDiscovery(req, res, config) {
       type: 'paginated',
     },
     capabilities: ['search', 'diff-sync'],
+    // Note: We intentionally do NOT expose admin email for privacy/security.
+    // Sites can provide contact via LLM Gateway settings if desired.
     contact: null,
   };
 

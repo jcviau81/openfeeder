@@ -134,6 +134,8 @@ export function createMiddleware(
           type: "paginated",
         },
         capabilities: ["search"],
+        // Note: We intentionally do NOT expose admin email for privacy/security.
+        // Sites can provide contact via LLM Gateway settings if desired.
         contact: null,
       };
       const lastMod = new Date(new Date().toISOString().slice(0, 10) + "T00:00:00Z").toUTCString();

@@ -159,6 +159,8 @@ def openfeeder_router(
                 "type": "paginated",
             },
             "capabilities": ["search"],
+            # Note: We intentionally do NOT expose admin email for privacy/security.
+            # Sites can provide contact via LLM Gateway settings if desired.
             "contact": None,
         }
 

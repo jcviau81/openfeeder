@@ -46,7 +46,9 @@ class DiscoveryController extends ControllerBase {
         'type' => 'paginated',
       ],
       'capabilities' => ['search'],
-      'contact' => $site_config->get('mail') ?: '',
+      // Note: We intentionally do NOT expose admin email for privacy/security.
+      // Sites can provide contact via LLM Gateway settings if desired.
+      'contact' => null,
     ];
 
     $response = new JsonResponse($data, 200, [

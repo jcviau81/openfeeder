@@ -47,6 +47,8 @@ class DiscoveryController
                 'type'     => 'paginated',
             ],
             'capabilities' => [],
+            // Note: We intentionally do NOT expose admin email for privacy/security.
+            // Sites can provide contact via LLM Gateway settings if desired.
             'contact'      => null,
         ];
 

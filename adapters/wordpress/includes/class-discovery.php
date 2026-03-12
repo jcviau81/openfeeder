@@ -23,6 +23,8 @@ class OpenFeeder_Discovery {
 			$description = get_bloginfo( 'description' );
 		}
 
+		// Note: We intentionally do NOT expose admin email for privacy/security.
+		// Sites can provide contact via LLM Gateway settings if desired.
 		return array(
 			'version'      => '1.0.2',
 			'site'         => array(
@@ -36,7 +38,7 @@ class OpenFeeder_Discovery {
 				'type'     => 'paginated',
 			),
 			'capabilities' => array( 'diff-sync' ),
-			'contact'      => get_option( 'admin_email', '' ),
+			'contact'      => null,
 		);
 	}
 }
