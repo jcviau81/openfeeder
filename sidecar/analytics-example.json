@@ -1,0 +1,36 @@
+{
+  "providers": [
+    {
+      "type": "umami",
+      "enabled": true,
+      "url": "https://analytics.snaf.foo",
+      "site_id": "12d3650a-5855-404d-92e9-fb406f8bbeb3",
+      "api_key": "optional-umami-api-key"
+    },
+    {
+      "type": "webhook",
+      "enabled": false,
+      "url": "https://your-backend.example.com/analytics",
+      "api_key": "optional-webhook-secret",
+      "extra": {
+        "headers": {
+          "X-Source": "openfeeder"
+        },
+        "timeout": 10
+      }
+    },
+    {
+      "type": "plausible",
+      "enabled": false,
+      "url": "https://plausible.io",
+      "site_id": "your-domain.com",
+      "api_key": "optional-plausible-api-key"
+    },
+    {
+      "type": "google_analytics",
+      "enabled": false,
+      "site_id": "G-XXXXXXXXXX",
+      "api_key": "your-measurement-protocol-secret"
+    }
+  ]
+}

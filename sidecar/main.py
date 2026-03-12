@@ -34,7 +34,16 @@ from fastapi import BackgroundTasks, FastAPI, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from analytics import Analytics, detect_bot
+from analytics_provider import (
+    APIRequestEvent,
+    BotActivityEvent,
+    ErrorEvent,
+    RateLimitEvent,
+    SearchEvent,
+    SyncEvent,
+    detect_bot,
+)
+from analytics_service import AnalyticsService
 from chunker import chunk_html
 from crawler import crawl
 from indexer import Indexer
@@ -50,11 +59,6 @@ from sync_utils import (
     _load_tombstones,
     parse_since,
 )
-from umami_client import (
-    init_umami_client,
-    get_umami_client,
-    shutdown_umami_client,
-)
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -66,17 +70,6 @@ MAX_PAGES = int(os.environ.get("MAX_PAGES", "500"))
 PORT = int(os.environ.get("PORT", "8080"))
 EMBEDDING_MODEL = os.environ.get("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
 WEBHOOK_SECRET = os.environ.get("OPENFEEDER_WEBHOOK_SECRET", "")
-
-ANALYTICS_PROVIDER = os.environ.get("ANALYTICS_PROVIDER", "none")
-ANALYTICS_URL = os.environ.get("ANALYTICS_URL", "")
-ANALYTICS_SITE_ID = os.environ.get("ANALYTICS_SITE_ID", "")
-ANALYTICS_API_KEY = os.environ.get("ANALYTICS_API_KEY", "")
-
-# Umami Analytics (optional, separate from legacy analytics)
-UMAMI_URL = os.environ.get("UMAMI_URL", "")
-UMAMI_SITE_ID = os.environ.get("UMAMI_SITE_ID", "")
-UMAMI_API_KEY = os.environ.get("UMAMI_API_KEY", "")
-UMAMI_ENABLED = os.environ.get("UMAMI_ENABLED", "true").lower() != "false"
 
 if not SITE_URL:
     sys.exit("FATAL: SITE_URL environment variable is required.")
@@ -103,10 +96,8 @@ scheduler: AsyncIOScheduler | None = None
 _last_crawl_ts: float = 0.0
 _crawl_running = False
 
-analytics = Analytics(ANALYTICS_PROVIDER, ANALYTICS_URL, ANALYTICS_SITE_ID, ANALYTICS_API_KEY)
-
-# Umami client (initialized on startup)
-umami_client = None
+# Analytics service (initialized on startup)
+analytics_service: AnalyticsService | None = None
 
 
 async def run_crawl() -> None:
@@ -149,7 +140,7 @@ async def run_crawl() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Start the indexer, run the initial crawl, and schedule periodic re-crawls."""
-    global indexer, scheduler, umami_client
+    global indexer, scheduler, analytics_service
 
     if not WEBHOOK_SECRET:
         logger.warning("OPENFEEDER_WEBHOOK_SECRET is not set — webhook endpoint is publicly accessible")
@@ -160,12 +151,12 @@ async def lifespan(app: FastAPI):
     # Initialize rate limiter
     await init_rate_limiter()
 
-    # Initialize Umami analytics client
-    if UMAMI_ENABLED and UMAMI_URL and UMAMI_SITE_ID:
-        umami_client = init_umami_client(UMAMI_URL, UMAMI_SITE_ID, UMAMI_API_KEY)
-        logger.info("Umami analytics initialized: %s", UMAMI_URL)
+    # Initialize analytics service from environment
+    analytics_service = AnalyticsService.from_env()
+    if analytics_service.enabled:
+        logger.info("Analytics service initialized with configured providers")
     else:
-        logger.info("Umami analytics disabled")
+        logger.info("Analytics service initialized (no providers enabled)")
 
     # Initial crawl in background so the server starts responding immediately
     asyncio.create_task(run_crawl())
@@ -181,8 +172,9 @@ async def lifespan(app: FastAPI):
     # Shutdown rate limiter
     await shutdown_rate_limiter()
 
-    # Shutdown Umami client
-    await shutdown_umami_client()
+    # Shutdown analytics service
+    if analytics_service:
+        await analytics_service.shutdown()
 
     if scheduler:
         scheduler.shutdown(wait=False)
@@ -215,12 +207,11 @@ async def rate_limit_middleware(request: Request, call_next):
         response = await call_next(request)
         response.headers["X-OpenFeeder"] = "1.0"
         
-        # Track Umami event
+        # Track API request event
         duration_ms = int((time.time() - start_time) * 1000)
         bot_name, bot_family = detect_bot(user_agent)
-        umami = get_umami_client()
-        if umami:
-            await umami.track_api_request(
+        if analytics_service and analytics_service.enabled:
+            await analytics_service.track_api_request(APIRequestEvent(
                 hostname=SITE_NAME,
                 endpoint=endpoint,
                 method=method,
@@ -229,7 +220,7 @@ async def rate_limit_middleware(request: Request, call_next):
                 user_agent=user_agent,
                 bot_name=bot_name,
                 bot_family=bot_family,
-            )
+            ))
         
         return response
 
@@ -240,20 +231,19 @@ async def rate_limit_middleware(request: Request, call_next):
     if not allowed:
         # Track rate limit hit
         duration_ms = int((time.time() - start_time) * 1000)
-        umami = get_umami_client()
-        if umami:
-            reset_ts = int(float(rate_limit_headers.get("X-RateLimit-Reset", time.time())))
-            limit = int(rate_limit_headers.get("X-RateLimit-Limit", 100))
-            remaining = int(rate_limit_headers.get("X-RateLimit-Remaining", 0))
-            
-            await umami.track_rate_limit_hit(
+        reset_ts = int(float(rate_limit_headers.get("X-RateLimit-Reset", time.time())))
+        limit = int(rate_limit_headers.get("X-RateLimit-Limit", 100))
+        remaining = int(rate_limit_headers.get("X-RateLimit-Remaining", 0))
+        
+        if analytics_service and analytics_service.enabled:
+            await analytics_service.track_rate_limit(RateLimitEvent(
                 hostname=SITE_NAME,
                 client_ip=client_ip,
                 endpoint=endpoint,
                 limit=limit,
                 remaining=remaining,
                 reset_timestamp=reset_ts,
-            )
+            ))
         
         return JSONResponse(
             status_code=429,
@@ -273,12 +263,12 @@ async def rate_limit_middleware(request: Request, call_next):
     for key, value in rate_limit_headers.items():
         response.headers[key] = value
     
-    # Track API request to Umami
+    # Track API request event
     duration_ms = int((time.time() - start_time) * 1000)
     bot_name, bot_family = detect_bot(user_agent)
-    umami = get_umami_client()
-    if umami and response.status_code < 500:  # Only track successful/client errors
-        await umami.track_api_request(
+    if analytics_service and analytics_service.enabled and response.status_code < 500:
+        # Track API request
+        await analytics_service.track_api_request(APIRequestEvent(
             hostname=SITE_NAME,
             endpoint=endpoint,
             method=method,
@@ -287,18 +277,18 @@ async def rate_limit_middleware(request: Request, call_next):
             user_agent=user_agent,
             bot_name=bot_name,
             bot_family=bot_family,
-        )
+        ))
         
         # Track bot activity if it's a known bot
         if bot_family != "unknown":
-            await umami.track_bot_activity(
+            await analytics_service.track_bot_activity(BotActivityEvent(
                 hostname=SITE_NAME,
                 bot_name=bot_name,
                 bot_family=bot_family,
                 endpoint=endpoint,
                 status_code=response.status_code,
                 duration_ms=duration_ms,
-            )
+            ))
     
     return response
 
@@ -327,18 +317,18 @@ async def discovery(request: Request):
         "contact": None,
     }
     bot_name, bot_family = detect_bot(request.headers.get("user-agent", ""))
-    await analytics.track({
-        "hostname": SITE_NAME,
-        "url": str(request.url),
-        "bot_name": bot_name,
-        "bot_family": bot_family,
-        "endpoint": "discovery",
-        "query": "",
-        "intent": request.headers.get("x-openfeeder-intent", ""),
-        "results": 0,
-        "cached": False,
-        "response_ms": int((time.time() - start_time) * 1000),
-    })
+    duration_ms = int((time.time() - start_time) * 1000)
+    if analytics_service and analytics_service.enabled:
+        await analytics_service.track_api_request(APIRequestEvent(
+            hostname=SITE_NAME,
+            endpoint="/.well-known/openfeeder.json",
+            method="GET",
+            status_code=200,
+            duration_ms=duration_ms,
+            user_agent=request.headers.get("user-agent", ""),
+            bot_name=bot_name,
+            bot_family=bot_family,
+        ))
     return body
 
 
@@ -368,23 +358,37 @@ async def content(
     """
     start_time = time.time()
     bot_name, bot_family = detect_bot(request.headers.get("user-agent", ""))
+    
+    # Helper to track API request with detailed metadata
+    async def track_openfeeder_request(
+        request_type: str,
+        results_count: int,
+        total_pages: int | None = None,
+        query_term: str | None = None,
+        has_filters: bool = False,
+        status_code: int = 200,
+    ):
+        if analytics_service and analytics_service.enabled:
+            duration_ms = int((time.time() - start_time) * 1000)
+            await analytics_service.track_api_request(APIRequestEvent(
+                hostname=SITE_NAME,
+                endpoint="/openfeeder",
+                method="GET",
+                status_code=status_code,
+                duration_ms=duration_ms,
+                user_agent=request.headers.get("user-agent", ""),
+                bot_name=bot_name,
+                bot_family=bot_family,
+                query_term=query_term,
+                page_number=page if page > 1 else None,
+                results_count=results_count,
+                total_pages=total_pages,
+                has_filters=has_filters,
+                request_type=request_type,
+            ))
 
     cache_age = int(time.time() - _last_crawl_ts) if _last_crawl_ts else None
     cached = _last_crawl_ts > 0
-
-    async def _track(endpoint: str, result_count: int, is_cached: bool) -> None:
-        await analytics.track({
-            "hostname": SITE_NAME,
-            "url": str(request.url),
-            "bot_name": bot_name,
-            "bot_family": bot_family,
-            "endpoint": endpoint,
-            "query": q or "",
-            "intent": request.headers.get("x-openfeeder-intent", ""),
-            "results": result_count,
-            "cached": is_cached,
-            "response_ms": int((time.time() - start_time) * 1000),
-        })
 
     # ── Differential sync mode (?since= and/or ?until= without ?q=) ─────
     if (since or until) and not q:
@@ -436,25 +440,52 @@ async def content(
 
         total = len(added) + len(updated) + len(deleted)
         
-        # Track sync event to Umami
+        # Track sync event
         sync_duration_ms = int((time.time() - start_time) * 1000)
-        umami = get_umami_client()
-        if umami:
-            await umami.track_sync(
+        if analytics_service and analytics_service.enabled:
+            await analytics_service.track_sync(SyncEvent(
                 hostname=SITE_NAME,
                 added_count=len(added),
                 updated_count=len(updated),
                 deleted_count=len(deleted),
                 duration_ms=sync_duration_ms,
-            )
+            ))
+            
+            # Also track API request for differential sync
+            await analytics_service.track_api_request(APIRequestEvent(
+                hostname=SITE_NAME,
+                endpoint="/openfeeder",
+                method="GET",
+                status_code=200,
+                duration_ms=sync_duration_ms,
+                user_agent=request.headers.get("user-agent", ""),
+                bot_name=bot_name,
+                bot_family=bot_family,
+                query_term=None,
+                page_number=None,
+                results_count=total,
+                total_pages=1,
+                has_filters=False,
+                request_type="stats",
+            ))
         
-        await _track("sync", total, cached)
         return JSONResponse(content=body, headers={"X-OpenFeeder-Cache": "MISS"})
 
     # ── Index mode (no url) ──────────────────────────────────────────
     if url is None and q is None:
         items, total = indexer.get_all_pages(page=page, limit=limit)
         total_pages = max(1, math.ceil(total / limit))
+        
+        # Track index request with detailed metadata
+        await track_openfeeder_request(
+            request_type="index",
+            results_count=len(items),
+            total_pages=total_pages,
+            query_term=None,
+            has_filters=False,
+            status_code=200,
+        )
+        
         response = JSONResponse(
             content={
                 "schema": "openfeeder/1.0",
@@ -465,7 +496,6 @@ async def content(
             },
             headers={"X-OpenFeeder-Cache": "HIT" if cached else "MISS"},
         )
-        await _track("index", len(items), cached)
         return response
 
     # ── Search mode (q param) ───────────────────────────────────────
@@ -473,21 +503,33 @@ async def content(
         results = indexer.search(query=q, limit=limit, url_filter=url)
         if min_score > 0.0:
             results = [r for r in results if r.relevance >= min_score]
+        
+        # Track whether filters were applied
+        has_filters = min_score > 0.0 or url is not None
+        
         if not results:
             # Track search with 0 results
             search_duration_ms = int((time.time() - start_time) * 1000)
-            umami = get_umami_client()
-            if umami:
-                await umami.track_search(
+            if analytics_service and analytics_service.enabled:
+                await analytics_service.track_search(SearchEvent(
                     hostname=SITE_NAME,
                     query=q,
                     results_count=0,
                     duration_ms=search_duration_ms,
                     min_score=min_score,
                     url_filter=url,
-                )
+                ))
             
-            await _track("search", 0, cached)
+            # Also track API request
+            await track_openfeeder_request(
+                request_type="search",
+                results_count=0,
+                total_pages=1,
+                query_term=q,
+                has_filters=has_filters,
+                status_code=404,
+            )
+            
             return _error_response("NOT_FOUND", "No results found for query.", 404)
 
         # Group by URL for response — use first result's page metadata
@@ -504,18 +546,27 @@ async def content(
             for r in results
         ]
 
-        # Track search event to Umami
+        # Track search event
         search_duration_ms = int((time.time() - start_time) * 1000)
-        umami = get_umami_client()
-        if umami:
-            await umami.track_search(
+        if analytics_service and analytics_service.enabled:
+            await analytics_service.track_search(SearchEvent(
                 hostname=SITE_NAME,
                 query=q,
                 results_count=len(chunks),
                 duration_ms=search_duration_ms,
                 min_score=min_score,
                 url_filter=url,
-            )
+            ))
+
+        # Track API request with search details
+        await track_openfeeder_request(
+            request_type="search",
+            results_count=len(chunks),
+            total_pages=1,  # Search results are not paginated in this API
+            query_term=q,
+            has_filters=has_filters,
+            status_code=200,
+        )
 
         response = JSONResponse(
             content={
@@ -537,7 +588,6 @@ async def content(
             },
             headers={"X-OpenFeeder-Cache": "HIT" if cached else "MISS"},
         )
-        await _track("search", len(chunks), cached)
         return response
 
     # ── Single page mode (url param, no q) ──────────────────────────
@@ -546,10 +596,28 @@ async def content(
 
     page_meta = indexer.get_page_meta(full_url)
     if not page_meta:
-        await _track("fetch", 0, cached)
+        # Track not found request
+        await track_openfeeder_request(
+            request_type="single",
+            results_count=0,
+            total_pages=1,
+            query_term=None,
+            has_filters=False,
+            status_code=404,
+        )
         return _error_response("NOT_FOUND", f"Page not found: {url}", 404)
 
     chunks = indexer.get_chunks_for_url(full_url, limit=limit)
+    
+    # Track single page request with detailed metadata
+    await track_openfeeder_request(
+        request_type="single",
+        results_count=len(chunks),
+        total_pages=1,
+        query_term=None,
+        has_filters=False,
+        status_code=200,
+    )
 
     response = JSONResponse(
         content={
@@ -571,7 +639,6 @@ async def content(
         },
         headers={"X-OpenFeeder-Cache": "HIT" if cached else "MISS"},
     )
-    await _track("fetch", len(chunks), cached)
     return response
 
 

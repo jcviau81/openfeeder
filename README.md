@@ -8,6 +8,8 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Tests](https://github.com/jcviau81/openfeeder/actions/workflows/test.yml/badge.svg)](https://github.com/jcviau81/openfeeder/actions/workflows/test.yml)
+[![GitHub Stars](https://img.shields.io/github/stars/jcviau81/openfeeder?style=social)](https://github.com/jcviau81/openfeeder)
+[![NPM Downloads](https://img.shields.io/npm/dt/openfeeder?color=blue)](https://www.npmjs.com/package/openfeeder)
 
 ---
 
@@ -130,6 +132,18 @@ Structured arrays. Typed fields. Zero prose overhead. An LLM can answer *"what a
 | WordPress (default theme) | 81 KB | ~3.5 KB via OpenFeeder | **22x** |
 
 *Note: "text content" still includes aria-labels, data attributes, and other noise. The actual useful content (the article) is even less. Real-world overhead for content sites: 20–40x.*
+
+---
+
+## Built with OpenFeeder
+
+Sites and projects already using OpenFeeder in production:
+
+| Project | URL | Adapter | Notes |
+|---------|-----|---------|-------|
+| **SketchyNews** | https://sketchynews.snaf.foo | Native Astro | Daily comic briefs powered by Claude + image generation |
+
+*[Know of a site using OpenFeeder? PR your project to this list!](BUILT_WITH.md)*
 
 ---
 
