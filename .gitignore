@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 .env
 .DS_Store
-dist/
 .venv/
-__pycache__/
+
+# Ignore build artifacts but keep dist/ for distributable ZIPs
+# dist/ — contains plugin ZIPs for CMS adapters (committed)
