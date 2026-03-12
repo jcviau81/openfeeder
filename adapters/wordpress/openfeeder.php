@@ -1,11 +1,11 @@
 <?php
 /**
  * Plugin Name: OpenFeeder
- * Plugin URI:  https://github.com/openfeeder/openfeeder
+ * Plugin URI:  https://github.com/jcviau81/openfeeder
  * Description: Expose your content to LLMs via the OpenFeeder protocol.
  * Version:     1.0.2
- * Author:      OpenFeeder
- * Author URI:  https://github.com/openfeeder/openfeeder
+ * Author:      Jean-Christophe Viau
+ * Author URI:  https://github.com/jcviau81
  * License:     MIT
  * Text Domain: openfeeder
  */
