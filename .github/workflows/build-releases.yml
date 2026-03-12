@@ -1,0 +1,133 @@
+name: Build & Publish CMS Packages
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version override (e.g. 1.0.2). Leave empty to use latest tag.'
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build CMS Adapter Packages
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        adapter: [wordpress, drupal, joomla, woocommerce]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extract version
+        run: |
+          if [[ "${{ github.event_name }}" == "release" ]]; then
+            TAG="${{ github.event.release.tag_name }}"
+          elif [[ -n "${{ github.event.inputs.version }}" ]]; then
+            TAG="v${{ github.event.inputs.version }}"
+          else
+            TAG="$(git describe --tags --abbrev=0 2>/dev/null || echo '')"
+          fi
+
+          # Strip leading 'v'
+          VERSION="${TAG#v}"
+
+          # Validate semver (with optional pre-release suffix)
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9._-]+)?$ ]]; then
+            echo "::error::Version '$VERSION' (from tag '$TAG') does not match semver pattern"
+            exit 1
+          fi
+
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+          echo "✅ Version: $VERSION (tag: $TAG)"
+
+      - name: Build ${{ matrix.adapter }} package
+        run: |
+          ADAPTER="${{ matrix.adapter }}"
+          mkdir -p "build/${ADAPTER}"
+          cp -r "adapters/${ADAPTER}/." "build/${ADAPTER}/"
+          cd build
+          zip -r "../openfeeder-${ADAPTER}-${VERSION}.zip" "${ADAPTER}/"
+          echo "📦 Built openfeeder-${ADAPTER}-${VERSION}.zip"
+          ls -lh "../openfeeder-${ADAPTER}-${VERSION}.zip"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: openfeeder-${{ matrix.adapter }}-${{ env.VERSION }}
+          path: openfeeder-${{ matrix.adapter }}-${{ env.VERSION }}.zip
+
+  publish:
+    name: Publish Release Assets
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'release'
+
+    steps:
+      - name: Extract version
+        run: |
+          TAG="${{ github.event.release.tag_name }}"
+          VERSION="${TAG#v}"
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect ZIPs
+        run: |
+          mkdir -p release-assets
+          find artifacts -name "*.zip" -exec cp {} release-assets/ \;
+          echo "📦 Release assets:"
+          ls -lh release-assets/
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release-assets/*.zip
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Add release summary comment
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const version = process.env.VERSION;
+            const adapters = ['wordpress', 'drupal', 'joomla', 'woocommerce'];
+            const repo = context.repo;
+            const tag = context.payload.release.tag_name;
+
+            let body = `## 📦 CMS Adapter Packages — ${tag}\n\n`;
+            body += `| Adapter | Download |\n|---------|----------|\n`;
+
+            for (const adapter of adapters) {
+              const filename = `openfeeder-${adapter}-${version}.zip`;
+              const url = `https://github.com/${repo.owner}/${repo.repo}/releases/download/${tag}/${filename}`;
+              body += `| ${adapter.charAt(0).toUpperCase() + adapter.slice(1)} | [${filename}](${url}) |\n`;
+            }
+
+            body += `\n_Built automatically by GitHub Actions_`;
+
+            await github.rest.repos.createCommitComment({
+              ...repo,
+              commit_sha: context.sha,
+              body: body
+            });
+
+            // Also update the release body
+            const release = context.payload.release;
+            const existingBody = release.body || '';
+            const newBody = existingBody + '\n\n---\n\n' + body;
+
+            await github.rest.repos.updateRelease({
+              ...repo,
+              release_id: release.id,
+              body: newBody
+            });
