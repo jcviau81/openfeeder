@@ -7,9 +7,9 @@
     "description": "A blog about technology and open source."
   },
   "feed": {
-    "endpoint": "/openfeeder",
+    "endpoint": "/wp-json/openfeeder/v1/content",
     "type": "paginated"
   },
-  "capabilities": [],
+  "capabilities": ["diff-sync"],
   "contact": "admin@example.com"
 }

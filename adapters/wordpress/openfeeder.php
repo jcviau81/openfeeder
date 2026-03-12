@@ -27,98 +27,73 @@ require_once OPENFEEDER_PLUGIN_DIR . 'includes/class-gateway.php';
 // Initialize LLM Gateway if enabled.
 if ( get_option( 'openfeeder_llm_gateway', false ) ) {
 	OpenFeeder_Gateway::init();
-
-	// Register REST route for dialogue respond (Mode 1 Round 2).
-	add_action( 'rest_api_init', function () {
-		register_rest_route( 'openfeeder/v1', '/gateway/respond', [
-			'methods'             => 'POST',
-			'callback'            => [ 'OpenFeeder_Gateway', 'handle_dialogue_respond' ],
-			'permission_callback' => '__return_true',
-		] );
-	} );
 }
 
 /**
- * Register rewrite rules for OpenFeeder endpoints.
+ * Register REST API routes for OpenFeeder.
  */
-function openfeeder_add_rewrite_rules() {
-	add_rewrite_rule(
-		'^\.well-known/openfeeder\.json$',
-		'index.php?openfeeder_route=discovery',
-		'top'
-	);
-	add_rewrite_rule(
-		'^openfeeder/?$',
-		'index.php?openfeeder_route=content',
-		'top'
-	);
-}
-add_action( 'init', 'openfeeder_add_rewrite_rules' );
+add_action( 'rest_api_init', function () {
+	// Discovery endpoint: GET /wp-json/openfeeder/v1/discovery
+	register_rest_route( 'openfeeder/v1', '/discovery', [
+		'methods'             => 'GET',
+		'callback'            => function ( $request ) {
+			// Check if plugin is enabled
+			if ( ! get_option( 'openfeeder_enabled', true ) ) {
+				return new WP_REST_Response(
+					array(
+						'schema' => 'openfeeder/1.0',
+						'error'  => array(
+							'code'    => 'NOT_FOUND',
+							'message' => 'OpenFeeder is disabled on this site.',
+						),
+					),
+					404
+				);
+			}
 
-/**
- * Register the custom query variable.
- *
- * @param array $vars Existing query vars.
- * @return array Modified query vars.
- */
-function openfeeder_query_vars( $vars ) {
-	$vars[] = 'openfeeder_route';
-	return $vars;
-}
-add_filter( 'query_vars', 'openfeeder_query_vars' );
+			$discovery = new OpenFeeder_Discovery();
+			$data      = $discovery->get_data();
+			$response  = new WP_REST_Response( $data, 200 );
+			$response->header( 'X-OpenFeeder', '1.0' );
+			$response->header( 'Access-Control-Allow-Origin', '*' );
+			$response->header( 'Cache-Control', 'public, max-age=300, stale-while-revalidate=60' );
+			return $response;
+		},
+		'permission_callback' => '__return_true',
+	] );
 
-/**
- * Handle incoming requests for OpenFeeder endpoints.
- */
-function openfeeder_handle_request() {
-	$route = get_query_var( 'openfeeder_route' );
+	// Content API endpoint: GET /wp-json/openfeeder/v1/content
+	register_rest_route( 'openfeeder/v1', '/content', [
+		'methods'             => 'GET',
+		'callback'            => function ( $request ) {
+			$api = new OpenFeeder_Content_API();
 
-	if ( ! $route ) {
-		return;
-	}
+			// Verify API key if required
+			if ( ! $api->verify_api_key( $request ) ) {
+				return new WP_REST_Response(
+					array(
+						'schema' => 'openfeeder/1.0',
+						'error'  => array(
+							'code'    => 'UNAUTHORIZED',
+							'message' => 'Valid API key required. Include Authorization: Bearer <key> header.',
+						),
+					),
+					401
+				);
+			}
 
-	// Check if plugin is enabled.
-	if ( ! get_option( 'openfeeder_enabled', true ) ) {
-		wp_send_json(
-			array(
-				'schema' => 'openfeeder/1.0',
-				'error'  => array(
-					'code'    => 'NOT_FOUND',
-					'message' => 'OpenFeeder is disabled on this site.',
-				),
-			),
-			404
-		);
-	}
+			return $api->handle_request( $request );
+		},
+		'permission_callback' => '__return_true',
+	] );
 
-	if ( 'discovery' === $route ) {
-		$discovery = new OpenFeeder_Discovery();
-		$discovery->serve();
-	} elseif ( 'content' === $route ) {
-		$api = new OpenFeeder_Content_API();
-		$api->serve();
-	}
-
-	exit;
-}
-add_action( 'template_redirect', 'openfeeder_handle_request' );
-
-/**
- * Flush rewrite rules on activation.
- */
-function openfeeder_activate() {
-	openfeeder_add_rewrite_rules();
-	flush_rewrite_rules();
-}
-register_activation_hook( __FILE__, 'openfeeder_activate' );
-
-/**
- * Flush rewrite rules on deactivation.
- */
-function openfeeder_deactivate() {
-	flush_rewrite_rules();
-}
-register_deactivation_hook( __FILE__, 'openfeeder_deactivate' );
+	// Gateway respond endpoint: POST /wp-json/openfeeder/v1/gateway/respond
+	register_rest_route( 'openfeeder/v1', '/gateway/respond', [
+		'methods'             => 'POST',
+		'callback'            => [ 'OpenFeeder_Gateway', 'handle_dialogue_respond' ],
+		'permission_callback' => '__return_true',
+	] );
+} );
 
 /**
  * Invalidate cache when a post is published or updated.
@@ -449,7 +424,7 @@ function openfeeder_settings_page() {
 							value="<?php echo esc_attr( get_option( 'openfeeder_api_key', '' ) ); ?>"
 							class="regular-text" autocomplete="off" />
 						<p class="description">
-							<?php esc_html_e( 'Optional. If set, requests to /openfeeder must include an Authorization: Bearer &lt;key&gt; header. Leave blank to allow public access. The discovery document (/.well-known/openfeeder.json) is always public.', 'openfeeder' ); ?>
+							<?php esc_html_e( 'Optional. If set, requests to /wp-json/openfeeder/v1/content must include an Authorization: Bearer &lt;key&gt; header. Leave blank to allow public access. The discovery endpoint is always public.', 'openfeeder' ); ?>
 						</p>
 					</td>
 				</tr>

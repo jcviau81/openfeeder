@@ -2,7 +2,7 @@
 /**
  * OpenFeeder content API endpoint.
  *
- * Handles GET /openfeeder requests. When a `url` parameter is provided,
+ * Handles GET /wp-json/openfeeder/v1/content requests. When a `url` parameter is provided,
  * returns chunked content for that post. Otherwise returns a paginated index
  * of all published posts.
  */
@@ -41,59 +41,65 @@ class OpenFeeder_Content_API {
 	}
 
 	/**
-	 * Route the request to the appropriate handler.
+	 * Verify API key from request headers.
+	 *
+	 * @param WP_REST_Request $request REST request object.
+	 * @return bool True if authorized, false otherwise.
 	 */
-	public function serve() {
-		// API key check: if openfeeder_api_key is set, require Authorization: Bearer <key>
+	public function verify_api_key( $request ) {
 		$api_key = get_option( 'openfeeder_api_key', '' );
-		if ( ! empty( $api_key ) ) {
-			$auth_header = '';
-			if ( isset( $_SERVER['HTTP_AUTHORIZATION'] ) ) {
-				$auth_header = trim( $_SERVER['HTTP_AUTHORIZATION'] );
-			} elseif ( isset( $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] ) ) {
-				// Apache mod_php strips Authorization header; this fallback requires:
-				// RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
-				$auth_header = trim( $_SERVER['REDIRECT_HTTP_AUTHORIZATION'] );
-			}
-			if ( ! hash_equals( 'Bearer ' . $api_key, $auth_header ) ) {
-				wp_send_json(
-					array(
-						'schema' => 'openfeeder/1.0',
-						'error'  => array(
-							'code'    => 'UNAUTHORIZED',
-							'message' => 'Valid API key required. Include Authorization: Bearer <key> header.',
-						),
-					),
-					401
-				);
-				return;
-			}
+		if ( empty( $api_key ) ) {
+			return true; // No API key required.
 		}
 
-		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
-		$raw_url = isset( $_GET['url'] ) ? sanitize_text_field( wp_unslash( $_GET['url'] ) ) : '';
-		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
-		$q = isset( $_GET['q'] ) ? sanitize_text_field( wp_unslash( $_GET['q'] ) ) : '';
-		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
-		$since_raw = isset( $_GET['since'] ) ? sanitize_text_field( wp_unslash( $_GET['since'] ) ) : '';
-		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
-		$until_raw = isset( $_GET['until'] ) ? sanitize_text_field( wp_unslash( $_GET['until'] ) ) : '';
+		$auth_header = $request->get_header( 'authorization' );
+		if ( empty( $auth_header ) ) {
+			return false;
+		}
+
+		return hash_equals( 'Bearer ' . $api_key, $auth_header );
+	}
+
+	/**
+	 * Route the REST request to the appropriate handler.
+	 *
+	 * @param WP_REST_Request $request REST request object.
+	 * @return WP_REST_Response|WP_Error Response object or error.
+	 */
+	public function handle_request( $request ) {
+		// Check if plugin is enabled.
+		if ( ! get_option( 'openfeeder_enabled', true ) ) {
+			return new WP_REST_Response(
+				array(
+					'schema' => 'openfeeder/1.0',
+					'error'  => array(
+						'code'    => 'NOT_FOUND',
+						'message' => 'OpenFeeder is disabled on this site.',
+					),
+				),
+				404
+			);
+		}
+
+		// Extract query parameters.
+		$raw_url  = $request->get_param( 'url' );
+		$q        = $request->get_param( 'q' );
+		$since    = $request->get_param( 'since' );
+		$until    = $request->get_param( 'until' );
 
 		// Differential sync: ?since= and/or ?until= without ?q= (search takes priority).
-		if ( ( ! empty( $since_raw ) || ! empty( $until_raw ) ) && empty( $q ) ) {
-			$this->serve_diff_sync( $since_raw, $until_raw );
-			return;
+		if ( ( ! empty( $since ) || ! empty( $until ) ) && empty( $q ) ) {
+			return $this->handle_diff_sync( $since, $until );
 		}
 
 		if ( ! empty( $raw_url ) ) {
 			$url = $this->sanitize_url_param( $raw_url );
 			if ( null === $url ) {
-						$this->send_error( 'INVALID_URL', 'The ?url= parameter must be a valid relative path.', 400 );
-				return;
+				return $this->error_response( 'INVALID_URL', 'The ?url= parameter must be a valid relative path.', 400 );
 			}
-			$this->serve_single( $url );
+			return $this->handle_single( $url, $request );
 		} else {
-			$this->serve_index();
+			return $this->handle_index( $request );
 		}
 	}
 
@@ -136,34 +142,32 @@ class OpenFeeder_Content_API {
 	}
 
 	/**
-	 * Serve a differential sync response.
+	 * Handle a differential sync request.
 	 *
 	 * @param string $since_raw Raw ?since= parameter value (may be empty).
 	 * @param string $until_raw Raw ?until= parameter value (may be empty).
+	 * @return WP_REST_Response|WP_Error Response object or error.
 	 */
-	private function serve_diff_sync( string $since_raw, string $until_raw = '' ) {
+	private function handle_diff_sync( string $since_raw, string $until_raw = '' ) {
 		$since_ts = false;
 		$until_ts = false;
 
 		if ( ! empty( $since_raw ) ) {
 			$since_ts = $this->parse_since( $since_raw );
 			if ( false === $since_ts ) {
-				$this->send_error( 'INVALID_PARAM', 'Invalid ?since= value. Provide an RFC3339 datetime or a valid sync_token.', 400 );
-				return;
+				return $this->error_response( 'INVALID_PARAM', 'Invalid ?since= value. Provide an RFC3339 datetime or a valid sync_token.', 400 );
 			}
 		}
 
 		if ( ! empty( $until_raw ) ) {
 			$until_ts = strtotime( $until_raw );
 			if ( false === $until_ts || $until_ts <= 0 ) {
-				$this->send_error( 'INVALID_PARAM', 'Invalid ?until= value. Provide an RFC3339 datetime.', 400 );
-				return;
+				return $this->error_response( 'INVALID_PARAM', 'Invalid ?until= value. Provide an RFC3339 datetime.', 400 );
 			}
 		}
 
 		if ( false !== $since_ts && false !== $until_ts && $until_ts < $since_ts ) {
-			$this->send_error( 'INVALID_PARAM', '?until= must be after ?since=.', 400 );
-			return;
+			return $this->error_response( 'INVALID_PARAM', '?until= must be after ?since=.', 400 );
 		}
 
 		$since_iso = false !== $since_ts ? gmdate( 'c', $since_ts ) : null;
@@ -277,7 +281,7 @@ class OpenFeeder_Content_API {
 			'deleted'            => $deleted,
 		);
 
-		$this->send_json( $data, 'MISS' );
+		return new WP_REST_Response( $data, 200 );
 	}
 
 	/**
@@ -332,40 +336,40 @@ class OpenFeeder_Content_API {
 	}
 
 	/**
-	 * Serve chunked content for a single post.
+	 * Handle a request for chunked content for a single post.
 	 *
 	 * @param string $url Relative URL of the post.
+	 * @param WP_REST_Request $request REST request object.
+	 * @return WP_REST_Response|WP_Error Response object or error.
 	 */
-	private function serve_single( $url ) {
+	private function handle_single( $url, $request ) {
 		// Check excluded paths.
 		if ( $this->is_excluded_path( $url ) ) {
-			$this->send_error( 'NOT_FOUND', 'No published post found at the given URL.', 404 );
-			return;
+			return $this->error_response( 'NOT_FOUND', 'No published post found at the given URL.', 404 );
 		}
 
 		$cache  = new OpenFeeder_Cache();
 		$post   = $this->find_post_by_url( $url );
 
 		if ( ! $post ) {
-			$this->send_error( 'NOT_FOUND', 'No published post found at the given URL.', 404 );
-			return;
+			return $this->error_response( 'NOT_FOUND', 'No published post found at the given URL.', 404 );
 		}
 
 		// Reject password-protected posts.
 		if ( ! empty( $post->post_password ) ) {
-			$this->send_error( 'NOT_FOUND', 'No published post found at the given URL.', 404 );
-			return;
+			return $this->error_response( 'NOT_FOUND', 'No published post found at the given URL.', 404 );
 		}
 
 		// Reject excluded post types.
 		if ( in_array( $post->post_type, $this->get_excluded_post_types(), true ) ) {
-			$this->send_error( 'NOT_FOUND', 'No published post found at the given URL.', 404 );
-			return;
+			return $this->error_response( 'NOT_FOUND', 'No published post found at the given URL.', 404 );
 		}
 
-		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
-		$limit = isset( $_GET['limit'] ) ? absint( $_GET['limit'] ) : 10;
-		$limit = min( $limit, (int) get_option( 'openfeeder_max_chunks', 50 ) );
+		$limit = $request->get_param( 'limit' );
+		if ( ! is_numeric( $limit ) ) {
+			$limit = 10;
+		}
+		$limit = min( absint( $limit ), (int) get_option( 'openfeeder_max_chunks', 50 ) );
 
 		// Check cache.
 		$cache_key = $cache->post_key( $post->ID );
@@ -380,8 +384,9 @@ class OpenFeeder_Content_API {
 			$data['chunks']                    = array_slice( $data['chunks'], 0, $limit );
 			$data['meta']['returned_chunks']   = count( $data['chunks'] );
 
-			$this->send_json( $data, 'HIT' );
-			return;
+			$response = new WP_REST_Response( $data, 200 );
+			$this->add_rest_headers( $response, 'HIT' );
+			return $response;
 		}
 
 		// Build response.
@@ -428,17 +433,31 @@ class OpenFeeder_Content_API {
 		$data['chunks']                  = array_slice( $data['chunks'], 0, $limit );
 		$data['meta']['returned_chunks'] = count( $data['chunks'] );
 
-		$this->send_json( $data, 'MISS' );
+		$response = new WP_REST_Response( $data, 200 );
+		$this->add_rest_headers( $response, 'MISS' );
+		return $response;
 	}
 
 	/**
-	 * Serve a paginated index of all published posts.
+	 * Handle a request for a paginated index of all published posts.
+	 *
+	 * @param WP_REST_Request $request REST request object.
+	 * @return WP_REST_Response|WP_Error Response object or error.
 	 */
-	private function serve_index() {
-		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
-		$page  = isset( $_GET['page'] ) ? max( 1, absint( $_GET['page'] ) ) : 1;
-		// phpcs:ignore WordPress.Security.NonceVerification.Recommended
-		$q     = isset( $_GET['q'] ) ? mb_substr( sanitize_text_field( wp_unslash( $_GET['q'] ) ), 0, 200 ) : '';
+	private function handle_index( $request ) {
+		$page  = $request->get_param( 'page' );
+		$q     = $request->get_param( 'q' );
+
+		if ( ! is_numeric( $page ) ) {
+			$page = 1;
+		}
+		$page = max( 1, absint( $page ) );
+
+		if ( ! is_string( $q ) ) {
+			$q = '';
+		}
+		$q = mb_substr( $q, 0, 200 );
+
 		$cache = new OpenFeeder_Cache();
 
 		// Check cache (only when no search query).
@@ -447,8 +466,9 @@ class OpenFeeder_Content_API {
 			$cached    = $cache->get( $cache_key );
 
 			if ( false !== $cached ) {
-				$this->send_json( $cached['data'], 'HIT' );
-				return;
+				$response = new WP_REST_Response( $cached['data'], 200 );
+				$this->add_rest_headers( $response, 'HIT' );
+				return $response;
 			}
 		}
 
@@ -510,7 +530,9 @@ class OpenFeeder_Content_API {
 			$cache->set( $cache_key, $data );
 		}
 
-		$this->send_json( $data, 'MISS' );
+		$response = new WP_REST_Response( $data, 200 );
+		$this->add_rest_headers( $response, 'MISS' );
+		return $response;
 	}
 
 	/**
@@ -600,54 +622,28 @@ class OpenFeeder_Content_API {
 	}
 
 	/**
-	 * Send a JSON response with OpenFeeder headers and HTTP caching support.
+	 * Add OpenFeeder headers to a REST response.
 	 *
-	 * Computes an ETag from the response body and checks If-None-Match to
-	 * support 304 Not Modified responses for CDN and proxy caches.
-	 *
-	 * @param array  $data        Response data.
+	 * @param WP_REST_Response $response REST response object.
 	 * @param string $cache_state 'HIT' or 'MISS'.
 	 */
-	private function send_json( $data, $cache_state = 'MISS' ) {
-		$json = wp_json_encode( $data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
-		$etag = '"' . substr( md5( $json ), 0, 16 ) . '"';
-		$last_modified = $this->get_last_modified_from_data( $data );
-
-		// Conditional request: 304 Not Modified.
-		$if_none_match = isset( $_SERVER['HTTP_IF_NONE_MATCH'] )
-			? trim( $_SERVER['HTTP_IF_NONE_MATCH'] ) : '';
-		if ( $if_none_match === $etag ) {
-			status_header( 304 );
-			exit;
-		}
-
-		header( 'Content-Type: application/json; charset=utf-8' );
-		header( 'X-OpenFeeder: 1.0' );
-		header( 'Access-Control-Allow-Origin: *' );
-		header( 'X-OpenFeeder-Cache: ' . $cache_state );
-		header( 'Cache-Control: public, max-age=300, stale-while-revalidate=60' );
-		header( 'ETag: ' . $etag );
-		header( 'Last-Modified: ' . $last_modified );
-		header( 'Vary: Accept-Encoding' );
-
-		echo $json; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
-		exit;
+	private function add_rest_headers( $response, $cache_state = 'MISS' ) {
+		$response->header( 'X-OpenFeeder', '1.0' );
+		$response->header( 'X-OpenFeeder-Cache', $cache_state );
+		$response->header( 'Cache-Control', 'public, max-age=300, stale-while-revalidate=60' );
+		$response->header( 'Access-Control-Allow-Origin', '*' );
 	}
 
 	/**
-	 * Send an error response.
+	 * Generate an error response.
 	 *
 	 * @param string $code    Error code (e.g. NOT_FOUND).
 	 * @param string $message Human-readable message.
 	 * @param int    $status  HTTP status code.
+	 * @return WP_REST_Response Error response.
 	 */
-	private function send_error( $code, $message, $status = 400 ) {
-		status_header( $status );
-		header( 'Content-Type: application/json; charset=utf-8' );
-		header( 'X-OpenFeeder: 1.0' );
-		header( 'Access-Control-Allow-Origin: *' );
-
-		echo wp_json_encode(
+	private function error_response( $code, $message, $status = 400 ) {
+		$response = new WP_REST_Response(
 			array(
 				'schema' => 'openfeeder/1.0',
 				'error'  => array(
@@ -655,8 +651,10 @@ class OpenFeeder_Content_API {
 					'message' => $message,
 				),
 			),
-			JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES
+			$status
 		);
-		exit;
+		$response->header( 'X-OpenFeeder', '1.0' );
+		$response->header( 'Access-Control-Allow-Origin', '*' );
+		return $response;
 	}
 }

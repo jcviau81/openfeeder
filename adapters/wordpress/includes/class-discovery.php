@@ -13,15 +13,17 @@ if ( ! defined( 'ABSPATH' ) ) {
 class OpenFeeder_Discovery {
 
 	/**
-	 * Serve the discovery JSON response with HTTP caching headers.
+	 * Get the discovery document data.
+	 *
+	 * @return array Discovery document structure.
 	 */
-	public function serve() {
+	public function get_data() {
 		$description = get_option( 'openfeeder_description', '' );
 		if ( empty( $description ) ) {
 			$description = get_bloginfo( 'description' );
 		}
 
-		$data = array(
+		return array(
 			'version'      => '1.0.2',
 			'site'         => array(
 				'name'        => get_bloginfo( 'name' ),
@@ -30,33 +32,11 @@ class OpenFeeder_Discovery {
 				'description' => $description,
 			),
 			'feed'         => array(
-				'endpoint' => '/openfeeder',
+				'endpoint' => '/wp-json/openfeeder/v1/content',
 				'type'     => 'paginated',
 			),
 			'capabilities' => array( 'diff-sync' ),
 			'contact'      => get_option( 'admin_email', '' ),
 		);
-
-		$json          = wp_json_encode( $data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
-		$etag          = '"' . substr( md5( $json ), 0, 16 ) . '"';
-		$last_modified = gmdate( 'D, d M Y 00:00:00 T' ); // Today at midnight UTC
-
-		// Conditional request: 304 Not Modified.
-		$if_none_match = isset( $_SERVER['HTTP_IF_NONE_MATCH'] )
-			? trim( $_SERVER['HTTP_IF_NONE_MATCH'] ) : '';
-		if ( $if_none_match === $etag ) {
-			status_header( 304 );
-			exit;
-		}
-
-		header( 'Content-Type: application/json; charset=utf-8' );
-		header( 'X-OpenFeeder: 1.0' );
-		header( 'Access-Control-Allow-Origin: *' );
-		header( 'Cache-Control: public, max-age=300, stale-while-revalidate=60' );
-		header( 'ETag: ' . $etag );
-		header( 'Last-Modified: ' . $last_modified );
-		header( 'Vary: Accept-Encoding' );
-
-		echo $json; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped
 	}
 }

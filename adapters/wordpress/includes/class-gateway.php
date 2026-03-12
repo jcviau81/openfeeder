@@ -75,7 +75,7 @@ class OpenFeeder_Gateway {
 		if ( is_admin() ) return;
 
 		$path = parse_url( $_SERVER['REQUEST_URI'], PHP_URL_PATH ) ?? '/';
-		if ( preg_match( '#^/(openfeeder|\.well-known/openfeeder)#', $path ) ) return;
+		if ( preg_match( '#^/(wp-json/openfeeder|openfeeder|\.well-known/openfeeder)#', $path ) ) return;
 
 		$ext = strtolower( pathinfo( $path, PATHINFO_EXTENSION ) );
 		if ( $ext && in_array( $ext, self::STATIC_EXTS, true ) ) return;
@@ -133,13 +133,14 @@ class OpenFeeder_Gateway {
 	private static function build_questions( array $ctx, string $path, string $base_url, bool $has_ecommerce ): array {
 		$questions  = [];
 		$encoded    = rawurlencode( $path );
+		$api_base   = $base_url . '/wp-json/openfeeder/v1';
 
 		switch ( $ctx['type'] ) {
 			case 'product':
 				$questions[] = [
 					'question' => $ctx['topic'] ? "Do you want the full details of \"{$ctx['topic']}\"?" : 'Do you want the full details of this product?',
 					'intent'   => 'single_product',
-					'action'   => "GET {$base_url}/openfeeder/products?url={$encoded}",
+					'action'   => "GET {$api_base}/content?url={$encoded}",
 					'returns'  => 'Full description, price, variants, availability, stock status',
 				];
 				// Get product categories
@@ -152,7 +153,7 @@ class OpenFeeder_Gateway {
 						$questions[] = [
 							'question' => "Are you comparing this with other \"{$cat_name}\" products?",
 							'intent'   => 'category_browse',
-							'action'   => "GET {$base_url}/openfeeder/products?category={$cat_slug}",
+							'action'   => "GET {$api_base}/content?q={$cat_slug}",
 							'returns'  => "All products in \"{$cat_name}\" with pricing and availability",
 						];
 					}
@@ -160,42 +161,30 @@ class OpenFeeder_Gateway {
 				$questions[] = [
 					'question' => 'Are you looking for similar products by keyword?',
 					'intent'   => 'keyword_search',
-					'action'   => "GET {$base_url}/openfeeder/products?q=" . rawurlencode( $ctx['topic'] ?? '' ),
+					'action'   => "GET {$api_base}/content?q=" . rawurlencode( $ctx['topic'] ?? '' ),
 					'returns'  => 'Products matching keywords from the name/description',
 				];
 				$questions[] = [
 					'question' => 'Are you filtering by price or availability?',
 					'intent'   => 'price_filter',
-					'action'   => "GET {$base_url}/openfeeder/products?in_stock=true",
-					'returns'  => 'All in-stock products (add &min_price=X&max_price=Y for budget filter)',
+					'action'   => "GET {$api_base}/content?q=in+stock",
+					'returns'  => 'All in-stock products (search by availability keywords)',
 				];
 				break;
 
 			case 'product_category':
 			case 'shop':
-				$cat_param = $ctx['object'] ? '?category=' . $ctx['object']->slug : '';
+				$cat_q = $ctx['object'] ? '?q=' . rawurlencode( $ctx['object']->name ) : '';
 				$questions[] = [
 					'question' => $ctx['topic'] ? "Do you want to browse all products in \"{$ctx['topic']}\"?" : 'Do you want to browse all products?',
 					'intent'   => 'category_browse',
-					'action'   => "GET {$base_url}/openfeeder/products{$cat_param}",
+					'action'   => "GET {$api_base}/content{$cat_q}",
 					'returns'  => 'All products in this category with pricing and availability',
-				];
-				$questions[] = [
-					'question' => 'Are you looking for in-stock items only?',
-					'intent'   => 'availability_filter',
-					'action'   => "GET {$base_url}/openfeeder/products{$cat_param}" . ( $cat_param ? '&' : '?' ) . 'in_stock=true',
-					'returns'  => 'Only available products in this category',
-				];
-				$questions[] = [
-					'question' => 'Are you looking for items on sale?',
-					'intent'   => 'sale_filter',
-					'action'   => "GET {$base_url}/openfeeder/products?on_sale=true" . ( $ctx['object'] ? '&category=' . $ctx['object']->slug : '' ),
-					'returns'  => 'Discounted products currently on sale',
 				];
 				$questions[] = [
 					'question' => 'Do you want to search by keyword or feature?',
 					'intent'   => 'keyword_search',
-					'action'   => "GET {$base_url}/openfeeder/products?q=your+keywords",
+					'action'   => "GET {$api_base}/content?q=your+keywords",
 					'returns'  => 'Products matching your search terms',
 				];
 				break;
@@ -204,7 +193,7 @@ class OpenFeeder_Gateway {
 				$questions[] = [
 					'question' => $ctx['topic'] ? "Do you want the full content of \"{$ctx['topic']}\"?" : 'Do you want the full content of this page?',
 					'intent'   => 'single_page',
-					'action'   => "GET {$base_url}/openfeeder?url={$encoded}",
+					'action'   => "GET {$api_base}/content?url={$encoded}",
 					'returns'  => 'Full article text split into semantic chunks, ready for LLM processing',
 				];
 				if ( $ctx['topic'] ) {
@@ -212,7 +201,7 @@ class OpenFeeder_Gateway {
 					$questions[] = [
 						'question' => "Are you looking for more content related to \"{$ctx['topic']}\"?",
 						'intent'   => 'topic_search',
-						'action'   => "GET {$base_url}/openfeeder?q={$q}",
+						'action'   => "GET {$api_base}/content?q={$q}",
 						'returns'  => 'All content related to this topic',
 					];
 				}
@@ -226,7 +215,7 @@ class OpenFeeder_Gateway {
 						$questions[] = [
 							'question' => "Are you interested in topics like: {$tag_names}?",
 							'intent'   => 'tag_search',
-							'action'   => "GET {$base_url}/openfeeder?q={$tag_q}",
+							'action'   => "GET {$api_base}/content?q={$tag_q}",
 							'returns'  => "Articles tagged with: {$tag_names}",
 						];
 					}
@@ -234,7 +223,7 @@ class OpenFeeder_Gateway {
 				$questions[] = [
 					'question' => 'Do you want to browse all available articles?',
 					'intent'   => 'index_browse',
-					'action'   => "GET {$base_url}/openfeeder",
+					'action'   => "GET {$api_base}/content",
 					'returns'  => 'Paginated index of all articles with summaries',
 				];
 				break;
@@ -245,13 +234,13 @@ class OpenFeeder_Gateway {
 				$questions[] = [
 					'question' => $ctx['topic'] ? "Do you want all articles in the \"{$ctx['topic']}\" category?" : 'Do you want articles in this category?',
 					'intent'   => 'category_content',
-					'action'   => "GET {$base_url}/openfeeder?q={$cat_q}",
+					'action'   => "GET {$api_base}/content?q={$cat_q}",
 					'returns'  => 'Articles related to this category',
 				];
 				$questions[] = [
 					'question' => 'Are you looking for something more specific?',
 					'intent'   => 'search',
-					'action'   => "GET {$base_url}/openfeeder?q=your+specific+topic",
+					'action'   => "GET {$api_base}/content?q=your+specific+topic",
 					'returns'  => 'Articles matching your search query',
 				];
 				break;
@@ -261,17 +250,9 @@ class OpenFeeder_Gateway {
 				$questions[] = [
 					'question' => $ctx['topic'] ? "Do you want OpenFeeder results for \"{$ctx['topic']}\"?" : 'Do you want structured search results?',
 					'intent'   => 'search',
-					'action'   => "GET {$base_url}/openfeeder?q={$q}",
+					'action'   => "GET {$api_base}/content?q={$q}",
 					'returns'  => 'Structured content matching your search query',
 				];
-				if ( $has_ecommerce ) {
-					$questions[] = [
-						'question' => $ctx['topic'] ? "Are you searching for products matching \"{$ctx['topic']}\"?" : 'Are you searching for products?',
-						'intent'   => 'product_search',
-						'action'   => "GET {$base_url}/openfeeder/products?q={$q}",
-						'returns'  => 'Products matching your search query',
-					];
-				}
 				break;
 
 			case 'home':
@@ -279,23 +260,15 @@ class OpenFeeder_Gateway {
 				$questions[] = [
 					'question' => 'Do you want to browse all available content?',
 					'intent'   => 'index_browse',
-					'action'   => "GET {$base_url}/openfeeder",
+					'action'   => "GET {$api_base}/content",
 					'returns'  => 'Paginated index of all content with summaries',
 				];
 				$questions[] = [
 					'question' => 'Are you searching for something specific?',
 					'intent'   => 'search',
-					'action'   => "GET {$base_url}/openfeeder?q=describe+what+you+need",
+					'action'   => "GET {$api_base}/content?q=describe+what+you+need",
 					'returns'  => 'Content matching your search query',
 				];
-				if ( $has_ecommerce ) {
-					$questions[] = [
-						'question' => 'Are you looking for products?',
-						'intent'   => 'products_browse',
-						'action'   => "GET {$base_url}/openfeeder/products",
-						'returns'  => 'Full product catalog with pricing and availability',
-					];
-				}
 				break;
 		}
 
@@ -313,40 +286,33 @@ class OpenFeeder_Gateway {
 	 * @return array Response array.
 	 */
 	private static function build_tailored_response( array $intent_data, array $context, string $base_url ): array {
-		$intent = $intent_data['intent'] ?? 'answer-question';
-		$depth  = $intent_data['depth'] ?? 'standard';
-		$format = $intent_data['format'] ?? 'full-text';
-		$query  = $intent_data['query'] ?? '';
-		$page   = $context['page_requested'] ?? '/';
+		$intent   = $intent_data['intent'] ?? 'answer-question';
+		$depth    = $intent_data['depth'] ?? 'standard';
+		$format   = $intent_data['format'] ?? 'full-text';
+		$query    = $intent_data['query'] ?? '';
+		$page     = $context['page_requested'] ?? '/';
+		$api_base = $base_url . '/wp-json/openfeeder/v1';
 
 		$endpoints = [];
 
 		if ( ! empty( $query ) ) {
 			$endpoints[] = [
-				'url'         => "{$base_url}/openfeeder?q=" . rawurlencode( $query ) . "&format={$format}",
+				'url'         => "{$api_base}/content?q=" . rawurlencode( $query ) . "&format={$format}",
 				'relevance'   => 'high',
 				'description' => 'Content filtered to match your specific question',
 			];
 		}
 
 		$type = $context['detected_type'] ?? 'page';
-		if ( in_array( $type, [ 'product', 'product_category', 'shop' ], true ) ) {
-			$endpoints[] = [
-				'url'         => "{$base_url}/openfeeder/products?url=" . rawurlencode( $page ),
-				'relevance'   => empty( $query ) ? 'high' : 'medium',
-				'description' => 'Product details for the requested page',
-			];
-		} else {
-			$endpoints[] = [
-				'url'         => "{$base_url}/openfeeder?url=" . rawurlencode( $page ),
-				'relevance'   => empty( $query ) ? 'high' : 'medium',
-				'description' => 'Full content of the requested page',
-			];
-		}
+		$endpoints[] = [
+			'url'         => "{$api_base}/content?url=" . rawurlencode( $page ),
+			'relevance'   => empty( $query ) ? 'high' : 'medium',
+			'description' => 'Full content of the requested page',
+		];
 
 		if ( empty( $query ) ) {
 			$endpoints[] = [
-				'url'         => "{$base_url}/openfeeder",
+				'url'         => "{$api_base}/content",
 				'relevance'   => 'low',
 				'description' => 'Browse all available content',
 			];
@@ -354,10 +320,10 @@ class OpenFeeder_Gateway {
 
 		$query_hints = [];
 		if ( ! empty( $query ) ) {
-			$query_hints[] = 'GET /openfeeder?q=' . rawurlencode( $query );
-			$query_hints[] = "GET /openfeeder?q=" . rawurlencode( $query ) . "&format={$format}&depth={$depth}";
+			$query_hints[] = 'GET /wp-json/openfeeder/v1/content?q=' . rawurlencode( $query );
+			$query_hints[] = "GET /wp-json/openfeeder/v1/content?q=" . rawurlencode( $query ) . "&format={$format}&depth={$depth}";
 		} else {
-			$query_hints[] = 'GET /openfeeder?url=' . rawurlencode( $page );
+			$query_hints[] = 'GET /wp-json/openfeeder/v1/content?url=' . rawurlencode( $page );
 		}
 
 		return [
@@ -369,13 +335,13 @@ class OpenFeeder_Gateway {
 			'recommended_endpoints' => $endpoints,
 			'query_hints'           => $query_hints,
 			'current_page'          => [
-				'openfeeder_url' => "{$base_url}/openfeeder?url=" . rawurlencode( $page ),
+				'openfeeder_url' => "{$api_base}/content?url=" . rawurlencode( $page ),
 				'title'          => $context['detected_topic'] ?? null,
 				'summary'        => ! empty( $type ) ? "{$type} page" : null,
 			],
 			'endpoints'             => [
-				'content'   => "{$base_url}/openfeeder",
-				'discovery' => "{$base_url}/.well-known/openfeeder.json",
+				'content'   => "{$api_base}/content",
+				'discovery' => "{$api_base}/discovery",
 			],
 		];
 	}
@@ -437,6 +403,7 @@ class OpenFeeder_Gateway {
 
 		// Mode 1 Round 1 — Cold Start: dialogue + session
 		$questions = self::build_questions( $ctx, $path, $base_url, $has_ecommerce );
+		$api_base  = $base_url . '/wp-json/openfeeder/v1';
 
 		$capabilities = [ 'content', 'search' ];
 		if ( $has_ecommerce ) $capabilities[] = 'products';
@@ -485,21 +452,21 @@ class OpenFeeder_Gateway {
 						'type'     => 'text',
 					],
 				],
-				'reply_to'   => 'POST /openfeeder/gateway/respond',
+				'reply_to'   => "POST {$api_base}/gateway/respond",
 			],
 			'context'    => array_merge( $context, [
 				'site_capabilities' => $capabilities,
 			] ),
 			'questions'  => $questions,
 			'endpoints'  => [
-				'content'   => "{$base_url}/openfeeder",
-				'discovery' => "{$base_url}/.well-known/openfeeder.json",
+				'content'   => "{$api_base}/content",
+				'discovery' => "{$api_base}/discovery",
 			],
 			'next_steps' => [
-				'Answer the dialog questions via POST /openfeeder/gateway/respond for a tailored response.',
+				"Answer the dialog questions via POST {$api_base}/gateway/respond for a tailored response.",
 				'Or choose an action from the questions above and make that GET request.',
-				"Or search directly: GET {$base_url}/openfeeder?q=describe+what+you+need",
-				"Start from the discovery doc: GET {$base_url}/.well-known/openfeeder.json",
+				"Or search directly: GET {$api_base}/content?q=describe+what+you+need",
+				"Start from the discovery doc: GET {$api_base}/discovery",
 			],
 		], JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES );
 

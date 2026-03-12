@@ -18,9 +18,7 @@ cp -r adapters/wordpress /path/to/wp-content/plugins/openfeeder
 
 Then activate the plugin from **Plugins** in the WordPress admin.
 
-### After activation
-
-Visit **Settings > Permalinks** and click **Save Changes** once. This ensures WordPress picks up the new rewrite rules for the OpenFeeder endpoints.
+> **Note:** No permalink flush required. The plugin uses the WordPress REST API (`/wp-json/...`) which works automatically.
 
 ## Settings
 
@@ -34,10 +32,12 @@ Navigate to **Settings > OpenFeeder** in the WordPress admin.
 
 ## Endpoints
 
+All endpoints use the WordPress REST API namespace `openfeeder/v1`.
+
 ### Discovery
 
 ```
-GET /.well-known/openfeeder.json
+GET /wp-json/openfeeder/v1/discovery
 ```
 
 Returns a JSON document describing your site and its OpenFeeder capabilities. See `openfeeder.json.example` for a sample response.
@@ -45,7 +45,7 @@ Returns a JSON document describing your site and its OpenFeeder capabilities. Se
 ### Content API
 
 ```
-GET /openfeeder
+GET /wp-json/openfeeder/v1/content
 ```
 
 **Index mode** (no `url` parameter): Returns a paginated list of all published posts.
@@ -53,7 +53,8 @@ GET /openfeeder
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `page` | integer | 1 | Page number |
-| `since` | RFC3339 | — | Differential sync — return posts published/updated since this date |
+| `q` | string | — | Full-text search query (max 200 chars) |
+| `since` | RFC3339 / sync_token | — | Differential sync — return posts published/updated since this date |
 | `until` | RFC3339 | — | Return posts published on or before this date |
 
 Use `?since=` and `?until=` together for a closed date range. `?q=` takes priority over date filters.
@@ -65,12 +66,20 @@ Use `?since=` and `?until=` together for a closed date range. `?q=` takes priori
 | `url` | string | — | Relative path of the post (e.g. `/2024/01/my-post/`) |
 | `limit` | integer | 10 | Maximum chunks to return (capped by Max Chunks setting) |
 
+### Gateway (Dialogue Respond)
+
+```
+POST /wp-json/openfeeder/v1/gateway/respond
+```
+
+Handles round 2 of the LLM Gateway dialogue. Accepts a JSON body with `session_id` and `answers`.
+
 ## What it exposes
 
 For each published post, the API returns:
 
 - **Title** — post title
-- **Author** — display name
+- **Author** — display name (configurable)
 - **Published / Updated** — ISO 8601 timestamps
 - **Summary** — the excerpt, or an auto-generated one from the first ~40 words
 - **Chunks** — the post body split into ~500-word sections, stripped of ads, shortcodes, widgets, navigation blocks, and all HTML
@@ -92,7 +101,7 @@ Responses are cached using WordPress transients (1-hour TTL). Cache is automatic
 
 ## Privacy
 
-This plugin only exposes content that is **already publicly published** on your site. Draft, private, pending, and trashed posts are never included. Disable the plugin at any time from **Settings > OpenFeeder** to stop serving the API.
+This plugin only exposes content that is **already publicly published** on your site. Draft, private, pending, and trashed posts are never included. Password-protected posts are excluded. Disable the plugin at any time from **Settings > OpenFeeder** to stop serving the API.
 
 ## Apache Authorization Header
 
@@ -104,26 +113,17 @@ RewriteRule .* - [E=HTTP_AUTHORIZATION:%{HTTP:Authorization}]
 
 The plugin automatically checks `REDIRECT_HTTP_AUTHORIZATION` as a fallback, so this one-line fix is all you need.
 
-## Performance Tip: Caching the Discovery Document
+## Performance Tip: Caching the Discovery Endpoint
 
-The discovery document at `/.well-known/openfeeder.json` is currently served via PHP on every request. Since this document rarely changes (only when site settings are updated), high-traffic sites can benefit from caching it at the web server or CDN level.
+The discovery endpoint at `/wp-json/openfeeder/v1/discovery` is lightweight but can be cached at the CDN level for high-traffic sites.
 
-**Nginx example** — add to your server block:
-
-```nginx
-location = /.well-known/openfeeder.json {
-    proxy_cache_valid 200 1h;
-    add_header X-Cache-Status $upstream_cache_status;
-}
-```
-
-**CDN** — set a cache TTL of 1 hour (3600s) on the `/.well-known/openfeeder.json` path. The ETag and Last-Modified headers returned by the plugin support conditional requests out of the box.
+**CDN** — set a cache TTL of 1 hour (3600s) on the `/wp-json/openfeeder/v1/discovery` path.
 
 ## Requirements
 
 - WordPress 5.0+
 - PHP 7.4+
-- Pretty permalinks enabled (any structure other than "Plain")
+- Pretty permalinks enabled (any structure other than "Plain") — required for the WordPress REST API
 
 ## License
 
