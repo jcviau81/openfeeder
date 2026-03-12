@@ -13,7 +13,6 @@ services:
       WORDPRESS_DB_NAME: wordpress
     volumes:
       - wp_data:/var/www/html
-      - ../adapters/wordpress:/var/www/html/wp-content/plugins/openfeeder:ro
     depends_on:
       wp-db:
         condition: service_healthy
@@ -41,7 +40,6 @@ services:
       - wordpress
     volumes:
       - wp_data:/var/www/html
-      - ../adapters/wordpress:/var/www/html/wp-content/plugins/openfeeder:ro
     environment:
       WORDPRESS_DB_HOST: wp-db
       WORDPRESS_DB_USER: wordpress
