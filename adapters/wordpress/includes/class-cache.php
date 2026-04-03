@@ -4,6 +4,9 @@
  *
  * Provides a simple get/set/invalidate interface backed by the WordPress
  * transients API. Default TTL is 1 hour.
+ *
+ * @package OpenFeeder
+ * @license GPL-2.0-or-later
  */
 
 if ( ! defined( 'ABSPATH' ) ) {

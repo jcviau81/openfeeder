@@ -5,6 +5,9 @@
  * Handles GET /wp-json/openfeeder/v1/content requests. When a `url` parameter is provided,
  * returns chunked content for that post. Otherwise returns a paginated index
  * of all published posts.
+ *
+ * @package OpenFeeder
+ * @license GPL-2.0-or-later
  */
 
 if ( ! defined( 'ABSPATH' ) ) {

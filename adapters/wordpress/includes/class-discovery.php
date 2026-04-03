@@ -4,6 +4,9 @@
  *
  * Serves the /.well-known/openfeeder.json discovery document using
  * WordPress site information from get_bloginfo().
+ *
+ * @package OpenFeeder
+ * @license GPL-2.0-or-later
  */
 
 if ( ! defined( 'ABSPATH' ) ) {

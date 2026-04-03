@@ -11,5 +11,5 @@
     "type": "paginated"
   },
   "capabilities": ["diff-sync"],
-  "contact": "admin@example.com"
+  "contact": null
 }

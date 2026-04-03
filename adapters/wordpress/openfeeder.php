@@ -6,7 +6,8 @@
  * Version:     1.0.2
  * Author:      Jean-Christophe Viau
  * Author URI:  https://github.com/jcviau81
- * License:     MIT
+ * License:     GPL-2.0-or-later
+ * License URI: https://www.gnu.org/licenses/gpl-2.0.html
  * Text Domain: openfeeder
  */
 

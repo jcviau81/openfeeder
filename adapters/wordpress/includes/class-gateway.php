@@ -12,6 +12,7 @@
  *   Mode 3 (Bypass)     — legacy bots use endpoints directly
  *
  * @package OpenFeeder
+ * @license GPL-2.0-or-later
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
@@ -71,16 +72,17 @@ class OpenFeeder_Gateway {
 	// ── Bot detection ─────────────────────────────────────────────────────────
 
 	public static function maybe_intercept() {
-		if ( 'GET' !== $_SERVER['REQUEST_METHOD'] ) return;
+		if ( ! isset( $_SERVER['REQUEST_METHOD'] ) || 'GET' !== $_SERVER['REQUEST_METHOD'] ) return;
 		if ( is_admin() ) return;
 
-		$path = parse_url( $_SERVER['REQUEST_URI'], PHP_URL_PATH ) ?? '/';
+		$raw_uri = isset( $_SERVER['REQUEST_URI'] ) ? sanitize_text_field( wp_unslash( $_SERVER['REQUEST_URI'] ) ) : '/';
+		$path    = parse_url( $raw_uri, PHP_URL_PATH ) ?? '/';
 		if ( preg_match( '#^/(wp-json/openfeeder|openfeeder|\.well-known/openfeeder)#', $path ) ) return;
 
 		$ext = strtolower( pathinfo( $path, PATHINFO_EXTENSION ) );
 		if ( $ext && in_array( $ext, self::STATIC_EXTS, true ) ) return;
 
-		$ua = $_SERVER['HTTP_USER_AGENT'] ?? '';
+		$ua = isset( $_SERVER['HTTP_USER_AGENT'] ) ? sanitize_text_field( wp_unslash( $_SERVER['HTTP_USER_AGENT'] ) ) : '';
 		if ( ! self::is_llm_bot( $ua ) ) return;
 
 		self::send_gateway_response( $path );
@@ -354,17 +356,19 @@ class OpenFeeder_Gateway {
 	 * @return array|null Null if no intent indicators present.
 	 */
 	private static function extract_intent_data(): ?array {
-		$intent = $_SERVER['HTTP_X_OPENFEEDER_INTENT'] ?? $_GET['_of_intent'] ?? null;
-		if ( ! $intent ) {
+		// phpcs:disable WordPress.Security.ValidatedSanitizedInput -- sanitized below.
+		$raw_intent = $_SERVER['HTTP_X_OPENFEEDER_INTENT'] ?? $_GET['_of_intent'] ?? null;
+		// phpcs:enable
+		if ( ! $raw_intent ) {
 			return null;
 		}
 
 		return [
-			'intent'   => $intent,
-			'depth'    => $_SERVER['HTTP_X_OPENFEEDER_DEPTH'] ?? $_GET['_of_depth'] ?? 'standard',
-			'format'   => $_SERVER['HTTP_X_OPENFEEDER_FORMAT'] ?? $_GET['_of_format'] ?? 'full-text',
-			'query'    => $_SERVER['HTTP_X_OPENFEEDER_QUERY'] ?? $_GET['_of_query'] ?? '',
-			'language' => $_SERVER['HTTP_X_OPENFEEDER_LANGUAGE'] ?? $_GET['_of_language'] ?? 'en',
+			'intent'   => sanitize_text_field( wp_unslash( $raw_intent ) ),
+			'depth'    => sanitize_text_field( wp_unslash( $_SERVER['HTTP_X_OPENFEEDER_DEPTH'] ?? $_GET['_of_depth'] ?? 'standard' ) ),
+			'format'   => sanitize_text_field( wp_unslash( $_SERVER['HTTP_X_OPENFEEDER_FORMAT'] ?? $_GET['_of_format'] ?? 'full-text' ) ),
+			'query'    => sanitize_text_field( wp_unslash( $_SERVER['HTTP_X_OPENFEEDER_QUERY'] ?? $_GET['_of_query'] ?? '' ) ),
+			'language' => sanitize_text_field( wp_unslash( $_SERVER['HTTP_X_OPENFEEDER_LANGUAGE'] ?? $_GET['_of_language'] ?? 'en' ) ),
 		];
 	}
 

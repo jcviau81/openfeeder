@@ -5,6 +5,9 @@
  * Strips WordPress noise (shortcodes, widgets, ads, navigation blocks) from
  * post content and splits the result into ~500-word chunks aligned on
  * paragraph boundaries.
+ *
+ * @package OpenFeeder
+ * @license GPL-2.0-or-later
  */
 
 if ( ! defined( 'ABSPATH' ) ) {
