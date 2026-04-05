@@ -9,5 +9,37 @@
 
     <files>
         <filename plugin="openfeeder">openfeeder.php</filename>
+        <folder>services</folder>
+        <folder>src</folder>
+        <folder>language</folder>
     </files>
+
+    <config>
+        <fields name="params">
+            <fieldset name="basic">
+                <field name="enabled" type="radio" label="PLG_SYSTEM_OPENFEEDER_ENABLED_LABEL"
+                    description="PLG_SYSTEM_OPENFEEDER_ENABLED_DESC" default="1"
+                    class="btn-group btn-group-yesno">
+                    <option value="0">JDISABLED</option>
+                    <option value="1">JENABLED</option>
+                </field>
+                <field name="site_description" type="text" label="PLG_SYSTEM_OPENFEEDER_SITE_DESCRIPTION_LABEL"
+                    description="PLG_SYSTEM_OPENFEEDER_SITE_DESCRIPTION_DESC" default=""
+                    filter="string" />
+                <field name="max_chunks" type="integer" label="PLG_SYSTEM_OPENFEEDER_MAX_CHUNKS_LABEL"
+                    description="PLG_SYSTEM_OPENFEEDER_MAX_CHUNKS_DESC" default="50"
+                    first="1" last="50" step="1" />
+            </fieldset>
+            <fieldset name="security" label="PLG_SYSTEM_OPENFEEDER_SECURITY_FIELDSET">
+                <field name="api_key" type="text" label="PLG_SYSTEM_OPENFEEDER_API_KEY_LABEL"
+                    description="PLG_SYSTEM_OPENFEEDER_API_KEY_DESC" default=""
+                    filter="string" />
+                <field name="author_display" type="list" label="PLG_SYSTEM_OPENFEEDER_AUTHOR_DISPLAY_LABEL"
+                    description="PLG_SYSTEM_OPENFEEDER_AUTHOR_DISPLAY_DESC" default="name">
+                    <option value="name">PLG_SYSTEM_OPENFEEDER_AUTHOR_NAME</option>
+                    <option value="hidden">PLG_SYSTEM_OPENFEEDER_AUTHOR_HIDDEN</option>
+                </field>
+            </fieldset>
+        </fields>
+    </config>
 </extension>

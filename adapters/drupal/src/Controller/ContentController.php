@@ -90,6 +90,19 @@ class ContentController extends ControllerBase {
       return $this->errorResponse('NOT_FOUND', 'OpenFeeder is disabled on this site.', 404);
     }
 
+    // Verify API key if configured.
+    $api_key = $config->get('api_key') ?? '';
+    if (!empty($api_key)) {
+      $auth_header = $request->headers->get('authorization', '');
+      $token = '';
+      if (preg_match('/^Bearer\s+(.+)$/i', $auth_header, $matches)) {
+        $token = trim($matches[1]);
+      }
+      if (!hash_equals($api_key, $token)) {
+        return $this->errorResponse('UNAUTHORIZED', 'Valid API key required. Include Authorization: Bearer <key> header.', 401);
+      }
+    }
+
     $url = $request->query->get('url', '');
     $query = $request->query->get('q', '');
 
@@ -234,6 +247,8 @@ class ContentController extends ControllerBase {
     if ($cached !== FALSE) {
       return $this->jsonResponse($cached['data'], 'HIT', $request);
     }
+
+    $config = $this->config('openfeeder.settings');
 
     $storage = $this->entityTypeManager()->getStorage('node');
     $query = $storage->getQuery()

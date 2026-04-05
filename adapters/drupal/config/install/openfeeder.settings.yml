@@ -1,3 +1,7 @@
 enabled: true
 description: ''
 max_chunks: 50
+api_key: ''
+excluded_paths: []
+excluded_content_types: []
+author_display: 'name'

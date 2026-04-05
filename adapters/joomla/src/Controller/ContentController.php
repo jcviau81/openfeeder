@@ -45,6 +45,23 @@ class ContentController
         $this->app->setHeader('Content-Type', 'application/json; charset=utf-8');
         $this->app->setHeader('X-OpenFeeder', '1.0');
 
+        // Verify API key if configured.
+        $api_key = (string) $this->params->get('api_key', '');
+        if ($api_key !== '') {
+            $auth_header = $input->server->getString('HTTP_AUTHORIZATION', '');
+            if (empty($auth_header)) {
+                $auth_header = $input->server->getString('REDIRECT_HTTP_AUTHORIZATION', '');
+            }
+            $token = '';
+            if (preg_match('/^Bearer\s+(.+)$/i', $auth_header, $matches)) {
+                $token = trim($matches[1]);
+            }
+            if (!hash_equals($api_key, $token)) {
+                $this->respondError('UNAUTHORIZED', 'Valid API key required. Include Authorization: Bearer <key> header.', 401);
+                return;
+            }
+        }
+
         if ($url !== '') {
             $this->handleSingleArticle($url, $limit);
         } elseif ($q !== '') {

@@ -1,0 +1,19 @@
+<?php
+
+/**
+ * @file
+ * Install and uninstall hooks for the OpenFeeder module.
+ *
+ * @package OpenFeeder
+ * @license GPL-2.0-or-later
+ */
+
+/**
+ * Implements hook_uninstall().
+ *
+ * Remove all cached data when the module is uninstalled.
+ */
+function openfeeder_uninstall() {
+  // Clear all OpenFeeder cache entries.
+  \Drupal::cache()->deleteAll();
+}
